@@ -1,0 +1,541 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/constants/app_constants.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_text_styles.dart';
+import '../../../auth/data/repositories/auth_repository.dart';
+import '../../../auth/presentation/providers/user_provider.dart';
+
+class AccountTab extends ConsumerWidget {
+  const AccountTab({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildHeader(context, ref),
+              const SizedBox(height: 24),
+              _buildProfileCard(context, ref),
+              const SizedBox(height: 16),
+              _buildMenuSection(context, ref),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, WidgetRef ref) {
+    final userAsync = ref.watch(userProfileProvider);
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary,
+            AppColors.primaryDark,
+          ],
+        ),
+      ),
+      child: userAsync.when(
+        data: (user) => Column(
+          children: [
+            Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 4,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Colors.white,
+                    backgroundImage: user?.foto != null 
+                      ? NetworkImage(user!.foto!)
+                      : null,
+                    child: user?.foto == null
+                      ? Text(
+                          user?.name.substring(0, 1).toUpperCase() ?? 'U',
+                          style: AppTextStyles.h3.copyWith(
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : null,
+                  ),
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(
+                      color: AppColors.success,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.verified,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              user?.name ?? 'Nama Pengguna',
+              style: AppTextStyles.h5.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              user?.jabatan ?? 'Jabatan',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: Colors.white.withValues(alpha: 0.9),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'NIP: ${user?.nip ?? '-'}',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
+          ],
+        ),
+        loading: () => Column(
+          children: [
+            const CircleAvatar(
+              radius: 50,
+              backgroundColor: Colors.white,
+              child: CircularProgressIndicator(),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Memuat...',
+              style: AppTextStyles.h5.copyWith(
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        error: (error, _) => Column(
+          children: [
+            const CircleAvatar(
+              radius: 50,
+              backgroundColor: Colors.white,
+              child: Icon(Icons.error, color: AppColors.error, size: 40),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Gagal memuat profil',
+              style: AppTextStyles.h6.copyWith(
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileCard(BuildContext context, WidgetRef ref) {
+    final userAsync = ref.watch(userProfileProvider);
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: userAsync.when(
+            data: (user) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Informasi Profil',
+                  style: AppTextStyles.h6.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildProfileItem(
+                  icon: Icons.email_outlined,
+                  label: 'Email',
+                  value: user?.email ?? '-',
+                ),
+                const Divider(height: 24),
+                _buildProfileItem(
+                  icon: Icons.phone_outlined,
+                  label: 'Username',
+                  value: user?.username ?? '-',
+                ),
+                const Divider(height: 24),
+                _buildProfileItem(
+                  icon: Icons.badge_outlined,
+                  label: 'Status',
+                  value: user?.statusAtlm ?? '-',
+                ),
+              ],
+            ),
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24.0),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (_, __) => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24.0),
+                child: Text('Gagal memuat data profil'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+              _buildProfileItem(
+                icon: Icons.phone_outlined,
+                label: 'No. Telepon',
+                value: '+62 812 3456 7890',
+              ),
+              const Divider(height: 24),
+              _buildProfileItem(
+                icon: Icons.location_on_outlined,
+                label: 'Lokasi Kerja',
+                value: 'Labkesda Sumenep',
+              ),
+              const Divider(height: 24),
+              _buildProfileItem(
+                icon: Icons.calendar_today_outlined,
+                label: 'Bergabung Sejak',
+                value: '1 Januari 2020',
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.info.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.info.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      color: AppColors.info,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Untuk mengubah data profil, silakan hubungi admin atau akses melalui website',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileItem({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            color: AppColors.primary,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMenuSection(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        children: [
+          _buildMenuCard(
+            title: 'Profil Saya',
+            icon: Icons.person_outline,
+            color: AppColors.primary,
+            onTap: () {
+              // Navigate to profile detail (readonly)
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Profil hanya dapat dilihat, tidak dapat diedit'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMenuCard(
+            title: 'Slip Gaji',
+            icon: Icons.receipt_long_outlined,
+            color: AppColors.success,
+            onTap: () {
+              // TODO: Navigate to salary page
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMenuCard(
+            title: 'Riwayat Absensi',
+            icon: Icons.history_outlined,
+            color: AppColors.info,
+            onTap: () {
+              // TODO: Navigate to attendance history
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMenuCard(
+            title: 'Pengajuan Izin/Cuti',
+            icon: Icons.event_note_outlined,
+            color: AppColors.warning,
+            onTap: () {
+              // TODO: Navigate to leave request
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMenuCard(
+            title: 'Pengaturan',
+            icon: Icons.settings_outlined,
+            color: AppColors.textSecondary,
+            onTap: () {
+              // TODO: Navigate to settings
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMenuCard(
+            title: 'Bantuan & FAQ',
+            icon: Icons.help_outline,
+            color: AppColors.accent,
+            onTap: () {
+              // TODO: Navigate to help
+            },
+          ),
+          const SizedBox(height: 8),
+          _buildMenuCard(
+            title: 'Tentang Aplikasi',
+            icon: Icons.info_outline,
+            color: AppColors.textSecondary,
+            onTap: () {
+              _showAboutDialog(context);
+            },
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _showLogoutDialog(context, ref);
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text('Keluar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMenuCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tentang MATRIX Mobile'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Image.asset(
+              'assets/images/logo.png',
+              width: 80,
+              height: 80,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'SiLAKES MATRIX',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Manajemen Absensi Terintegrasi dan Remunerasi Insentif eXpert',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Versi: ${AppConstants.appVersion}',
+              style: AppTextStyles.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '© 2026 Labkesda Sumenep',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Konfirmasi Keluar'),
+        content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              // TODO: Implement logout
+              await ref.read(authRepositoryProvider).logout();
+              if (context.mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+            ),
+            child: const Text('Keluar'),
+          ),
+        ],
+      ),
+    );
+  }
+}

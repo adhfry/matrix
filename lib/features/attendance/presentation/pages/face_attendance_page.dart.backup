@@ -1,0 +1,1117 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:camera/camera.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/snackbar_helper.dart';
+import '../../data/repositories/attendance_repository.dart';
+import '../../data/models/attendance_location_model.dart';
+import '../../data/models/attendance_config_model.dart';
+import 'locked_attendance_page.dart';
+
+class FaceAttendancePage extends ConsumerStatefulWidget {
+  final AttendanceConfigModel config;
+
+  const FaceAttendancePage({super.key, required this.config});
+
+  @override
+  ConsumerState<FaceAttendancePage> createState() => _FaceAttendancePageState();
+}
+
+class _FaceAttendancePageState extends ConsumerState<FaceAttendancePage>
+    with WidgetsBindingObserver {
+  CameraController? _cameraController;
+  bool _isCameraInitialized = false;
+  bool _isDetecting = false;
+  bool _isFaceDetected = false;
+  int _blinkCount = 0;
+  bool _wasEyesClosed = false;
+  String _statusMessage = 'Posisikan wajah Anda di dalam oval';
+  bool _isProcessing = false;
+
+  // Location
+  bool _mapReady = false;
+  Position? _currentPosition;
+  bool _isFirstLoading = true; // Flag untuk loading pertama kali
+  final MapController _mapController = MapController();
+  List<AttendanceLocationModel> _allowedLocations = [];
+  AttendanceLocationModel? _selectedLocation;
+  List<Marker> _markers = [];
+  List<CircleMarker> _circles = [];
+
+  // Stream Location
+  StreamSubscription<Position>? _positionStreamSubscription;
+
+  // Countdown Timer for Flexi Check-Out
+  Timer? _countdownTimer;
+  int _remainingSeconds = 0;
+  bool _canProceed = true;
+
+  // Face detection
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableClassification: true,
+      enableLandmarks: true,
+      enableTracking: true,
+      minFaceSize: 0.15,
+      performanceMode: FaceDetectorMode.accurate,
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Don't initialize if user is Fixed and cannot attend
+    final bool isFixed = widget.config.user.isFixed;
+    final bool canAttend = widget.config.canAttend.allowed;
+    
+    if (isFixed && !canAttend) {
+      // Skip all initialization - will show locked screen
+      return;
+    }
+    
+    _checkFlexiCountdown();
+    _initialSetup();
+  }
+
+  void _checkFlexiCountdown() {
+    final config = widget.config;
+    
+    // Get remaining seconds from backend
+    _remainingSeconds = config.canAttend.remainingSeconds;
+    _canProceed = config.canAttend.allowed;
+    
+    if (!_canProceed && _remainingSeconds > 0) {
+      _startCountdown();
+    }
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    
+    if (_remainingSeconds <= 0) {
+      setState(() {
+        _canProceed = true;
+      });
+      return;
+    }
+    
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      setState(() {
+        if (_remainingSeconds > 0) {
+          _remainingSeconds--;
+        }
+        
+        if (_remainingSeconds == 0) {
+          _canProceed = true;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  Future<void> _initialSetup() async {
+    await _requestPermissions();
+    _loadUserData();
+    _initializeCamera();
+    _loadLocations();
+    // Lokasi dimulai terakhir agar lokasi tujuan sudah termuat
+    _startLocationStream();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      if (_positionStreamSubscription == null ||
+          _positionStreamSubscription!.isPaused) {
+        _startLocationStream();
+      }
+    } else if (state == AppLifecycleState.paused) {
+      _positionStreamSubscription?.pause();
+    }
+  }
+
+  Future<void> _requestPermissions() async {
+    final statuses = await [
+      Permission.location,
+      Permission.camera,
+      Permission.notification,
+    ].request();
+
+    final allGranted = statuses.values.every((status) => status.isGranted);
+    if (!allGranted && mounted) {
+      SnackBarHelper.showError(
+        context,
+        'Beberapa permission diperlukan untuk fitur ini',
+      );
+    }
+  }
+
+  Future<void> _loadUserData() async {
+    // Data sudah ada dari config yang di-pass
+    // Tidak perlu load lagi
+  }
+
+  Future<void> _loadLocations() async {
+    try {
+      final repository = ref.read(attendanceRepositoryProvider);
+      final locations = await repository.getAllowedLocations();
+
+      if (mounted) {
+        setState(() {
+          _allowedLocations = locations;
+          _updateMarkersAndCircles();
+          // Hitung jarak awal jika posisi sudah ada (jarang terjadi karena async, tapi untuk safety)
+          if (_currentPosition != null) {
+            _calculateDistances(_currentPosition!);
+          }
+        });
+      }
+    } catch (e) {
+      print('❌ Error loading locations: $e');
+      if (mounted) {
+        SnackBarHelper.showError(context, 'Gagal memuat lokasi: $e');
+      }
+    }
+  }
+
+  void _updateMarkersAndCircles() {
+    _markers.clear();
+    _circles.clear();
+
+    // Re-add user marker if exists
+    if (_currentPosition != null) {
+      _markers.add(_buildUserMarker(_currentPosition!));
+    }
+
+    for (var location in _allowedLocations) {
+      final latLng = LatLng(location.latitude, location.longitude);
+
+      _markers.add(
+        Marker(
+          point: latLng,
+          width: 80,
+          height: 80,
+          child: Column(
+            children: [
+              Icon(Icons.location_on, color: AppColors.error, size: 40),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(4),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 2)],
+                ),
+                child: Text(
+                  location.name,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      _circles.add(
+        CircleMarker(
+          point: latLng,
+          radius: location.radiusMeters.toDouble(),
+          useRadiusInMeter: true,
+          color: AppColors.primary.withOpacity(0.1),
+          borderColor: AppColors.primary,
+          borderStrokeWidth: 2,
+        ),
+      );
+    }
+  }
+
+  Marker _buildUserMarker(Position position) {
+    return Marker(
+      point: LatLng(position.latitude, position.longitude),
+      width: 40,
+      height: 40,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.blue,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: const Icon(Icons.person, color: Colors.white, size: 20),
+      ),
+    );
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      final frontCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        frontCamera,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: Platform.isAndroid
+            ? ImageFormatGroup.nv21
+            : ImageFormatGroup.bgra8888,
+      );
+
+      await _cameraController!.initialize();
+
+      try {
+        await _cameraController!.setZoomLevel(0.5);
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() => _isCameraInitialized = true);
+        await _cameraController!.startImageStream(_processCameraImage);
+      }
+    } catch (e) {
+      print('❌ Error initializing camera: $e');
+      if (mounted) {
+        setState(() => _statusMessage = 'Gagal inisialisasi kamera');
+      }
+    }
+  }
+
+  // --- LOGIKA LOCATION STREAMING ---
+  Future<void> _startLocationStream() async {
+    // Cek service dan permission dulu
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted)
+        SnackBarHelper.showError(context, 'Layanan lokasi tidak aktif');
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) SnackBarHelper.showError(context, 'Izin lokasi ditolak');
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted)
+        SnackBarHelper.showError(context, 'Izin lokasi ditolak permanen');
+      return;
+    }
+
+    // Setting akurasi dan interval update
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 1, // Update setiap user bergerak 2 meter
+    );
+
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (Position position) {
+            _handlePositionUpdate(position);
+          },
+          onError: (e) {
+            if (mounted) {
+              // Hanya tampilkan error jika ini bukan loading awal (artinya stream putus)
+              // atau jika loading awal gagal total.
+              setState(() {
+                _isFirstLoading = false;
+              });
+              print("Location Stream Error: $e");
+              SnackBarHelper.showError(
+                context,
+                'Gagal mendapatkan lokasi realtime: $e',
+              );
+            }
+          },
+        );
+  }
+
+  void _handlePositionUpdate(Position position) {
+    if (!mounted) return;
+
+    setState(() {
+      _currentPosition = position;
+      _isFirstLoading = false; // Lokasi berhasil didapat, matikan loading
+
+      // Update markers list to refresh user pin position
+      _updateMarkersAndCircles();
+
+      // Hitung jarak realtime
+      _calculateDistances(position);
+    });
+
+    // Pindahkan kamera peta agar mengikuti user
+    if (_mapReady) {
+      _centerMapOnUser(position);
+    }
+  }
+
+  void _centerMapOnUser(Position position) {
+    // OFFSET LOGIC:
+    // User ingin pin posisi berada agak di BAWAH lingkaran wajah (tengah layar).
+    // Agar Pin (User) terlihat di BAWAH Center Layar (Map Center),
+    // Maka Map Center harus berada di UTARA (Atas) dari User.
+    // Latitude bertambah ke arah Utara (di belahan bumi selatan/ekuator nilainya mendekati 0 atau positif).
+    // Jadi: Map Center Latitude = User Latitude + Offset Positif.
+
+    // 0.0035 derajat kira-kira 350-400 meter.
+    // Sesuaikan nilai ini. Jika ingin turun sedikit saja, 0.001 sudah cukup terasa di zoom level 16.
+    const double latOffset = 0.0042;
+
+    _mapController.move(
+      LatLng(position.latitude + latOffset, position.longitude),
+      16, // Zoom level tetap
+    );
+  }
+
+  void _calculateDistances(Position currentPos) {
+    if (_allowedLocations.isEmpty) return;
+
+    for (var i = 0; i < _allowedLocations.length; i++) {
+      final location = _allowedLocations[i];
+      final distance = Geolocator.distanceBetween(
+        currentPos.latitude,
+        currentPos.longitude,
+        location.latitude,
+        location.longitude,
+      );
+
+      final isInRange = distance <= location.radiusMeters;
+
+      _allowedLocations[i] = location.copyWith(
+        distance: distance,
+        isInRange: isInRange,
+      );
+    }
+
+    _allowedLocations.sort(
+      (a, b) => (a.distance ?? 0).compareTo(b.distance ?? 0),
+    );
+
+    // Update selected location jika belum ada atau update jaraknya
+    setState(() {
+      if (_selectedLocation == null) {
+        _selectedLocation = _allowedLocations.first;
+      } else {
+        // Cari object location yang sama di list baru yang sudah diupdate jaraknya
+        try {
+          _selectedLocation = _allowedLocations.firstWhere(
+            (loc) => loc.id == _selectedLocation!.id,
+          );
+        } catch (_) {
+          _selectedLocation = _allowedLocations.first;
+        }
+      }
+    });
+  }
+
+  void _processCameraImage(CameraImage image) async {
+    if (_isDetecting || _isProcessing) return;
+
+    // Don't process if countdown is still running
+    if (!_canProceed) {
+      return;
+    }
+
+    _isDetecting = true;
+
+    try {
+      final inputImage = _convertCameraImage(image);
+      if (inputImage == null) {
+        _isDetecting = false;
+        return;
+      }
+
+      final faces = await _faceDetector.processImage(inputImage);
+
+      if (mounted) {
+        if (faces.isEmpty) {
+          setState(() {
+            _isFaceDetected = false;
+            _statusMessage = 'Wajah tidak terdeteksi';
+            _blinkCount = 0;
+            _wasEyesClosed = false;
+          });
+        } else {
+          final face = faces.first;
+
+          // Check orientation
+          if (face.headEulerAngleY != null && face.headEulerAngleZ != null) {
+            if (face.headEulerAngleY!.abs() > 20 ||
+                face.headEulerAngleZ!.abs() > 20) {
+              setState(() {
+                _isFaceDetected = false;
+                _statusMessage = 'Posisikan wajah tegak menghadap kamera';
+                _blinkCount = 0;
+                _wasEyesClosed = false;
+              });
+              _isDetecting = false;
+              return;
+            }
+          }
+
+          // WAJAH TEGAK TERDETEKSI
+          // Langsung update state dan pesan tanpa delay
+          _isFaceDetected = true;
+
+          // Pesan intruksi langsung berubah
+          String newMessage = 'Wajah terdeteksi - Kedipkan mata';
+          if (_blinkCount > 0) {
+            newMessage += ' (${_blinkCount}/2)';
+          }
+
+          // Blink detection logic
+          if (face.leftEyeOpenProbability != null &&
+              face.rightEyeOpenProbability != null) {
+            final leftEye = face.leftEyeOpenProbability!;
+            final rightEye = face.rightEyeOpenProbability!;
+            final bothEyesClosed = leftEye < 0.3 && rightEye < 0.3;
+            final bothEyesOpen = leftEye > 0.6 && rightEye > 0.6;
+
+            if (bothEyesClosed && !_wasEyesClosed) {
+              _wasEyesClosed = true;
+            } else if (bothEyesOpen && _wasEyesClosed) {
+              _blinkCount++;
+              _wasEyesClosed = false;
+              // Update message counter immediately
+              newMessage =
+                  'Wajah terdeteksi - Kedipkan mata (${_blinkCount}/2)';
+            }
+          }
+
+          // Update UI
+          if (_blinkCount >= 2) {
+            setState(() => _statusMessage = 'Mengambil foto...');
+            await _captureAndSubmit();
+          } else {
+            setState(() => _statusMessage = newMessage);
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors during stream
+    }
+
+    _isDetecting = false;
+  }
+
+  InputImage? _convertCameraImage(CameraImage image) {
+    try {
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
+      }
+      final bytes = allBytes.done().buffer.asUint8List();
+
+      final inputImageData = InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: InputImageRotation.rotation270deg,
+        format: InputImageFormat.nv21,
+        bytesPerRow: image.planes.first.bytesPerRow,
+      );
+
+      return InputImage.fromBytes(bytes: bytes, metadata: inputImageData);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> _captureAndSubmit() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized)
+      return;
+
+    // Check if countdown is still running
+    if (!_canProceed) {
+      SnackBarHelper.showError(
+        context,
+        'Mohon tunggu hingga countdown selesai',
+      );
+      setState(() => _blinkCount = 0);
+      return;
+    }
+
+    // Validasi lokasi saat submit
+    if (_currentPosition == null) {
+      setState(() {
+        _blinkCount = 0; // Reset agar user bisa coba lagi
+        _statusMessage = 'Menunggu lokasi...';
+      });
+      // Coba trigger stream lagi jika macet
+      if (_positionStreamSubscription == null) _startLocationStream();
+      return;
+    }
+
+    if (_selectedLocation == null) {
+      SnackBarHelper.showError(context, 'Pilih lokasi absensi');
+      setState(() => _blinkCount = 0);
+      return;
+    }
+
+    // Validasi lokasi - kecuali jika user adalah location_free atau mode Flexi
+    final bool isLocationFree = widget.config.user.isLocationFree;
+    final bool isFlexi = widget.config.user.isFlexi;
+
+    if (!isLocationFree && !isFlexi) {
+      if (_selectedLocation!.isInRange == false) {
+        SnackBarHelper.showError(
+          context,
+          'Anda di luar jangkauan lokasi absensi',
+        );
+        setState(() => _blinkCount = 0);
+        return;
+      }
+    }
+
+    setState(() => _isProcessing = true);
+
+    try {
+      await _cameraController!.stopImageStream();
+      final XFile photoXFile = await _cameraController!.takePicture();
+      final File photoFile = File(photoXFile.path);
+      final repository = ref.read(attendanceRepositoryProvider);
+
+      final bool isCheckOut = widget.config.nextAction == 'CHECK_OUT';
+      await (isCheckOut
+          ? repository.checkOut(
+              latitude: _currentPosition!.latitude,
+              longitude: _currentPosition!.longitude,
+              locationId: _selectedLocation!.id,
+              photo: photoFile,
+            )
+          : repository.checkIn(
+              latitude: _currentPosition!.latitude,
+              longitude: _currentPosition!.longitude,
+              locationId: _selectedLocation!.id,
+              photo: photoFile,
+            ));
+
+      if (mounted) {
+        Navigator.pop(context, true);
+        SnackBarHelper.showSuccess(
+          context,
+          isCheckOut ? 'Check-out berhasil!' : 'Check-in berhasil!',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Gagal: ${e.toString()}';
+          _isProcessing = false;
+          _blinkCount = 0;
+          _wasEyesClosed = false;
+        });
+
+        try {
+          _cameraController?.startImageStream(_processCameraImage);
+        } catch (_) {}
+
+        SnackBarHelper.showError(context, e.toString());
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController?.dispose();
+    _faceDetector.close();
+    _mapController.dispose();
+    _positionStreamSubscription?.cancel();
+    _countdownTimer?.cancel(); // Cancel countdown timer
+    super.dispose();
+  }
+
+  // --- UI SECTION ---
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final double cameraSize = math.min(size.width - 40, 480);
+    
+    // Check if user is Fixed mode and cannot attend
+    final bool isFixed = widget.config.user.isFixed;
+    final bool canAttend = widget.config.canAttend.allowed;
+    
+    // Show locked screen for Fixed users who cannot attend yet
+    if (isFixed && !canAttend) {
+      return LockedAttendancePage(config: widget.config);
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        top: false,
+        child: Stack(
+          children: [
+            // Background Map
+            Positioned.fill(
+              child: FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  // Default center jika lokasi belum ada (misal Jakarta)
+                  initialCenter: const LatLng(-6.2088, 106.8456),
+                  initialZoom: 16.0,
+                  interactionOptions: const InteractionOptions(
+                    flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                  ),
+                  onMapReady: () {
+                    setState(() => _mapReady = true);
+                    // Jika posisi sudah didapat sebelum map ready, center sekarang
+                    if (_currentPosition != null) {
+                      _centerMapOnUser(_currentPosition!);
+                    }
+                  },
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.silakes.matrix',
+                  ),
+                  CircleLayer(circles: _circles),
+                  MarkerLayer(markers: _markers),
+                ],
+              ),
+            ),
+
+            // Loading Indicator khusus Map (Jika stream belum dapat data pertama kali)
+            if (_isFirstLoading)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black12, // Transparan sedikit
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+
+            // Dimmed Overlay
+            Positioned.fill(
+              child: Container(color: Colors.black.withOpacity(0.3)),
+            ),
+
+            // Camera Oval
+            Positioned(
+              top: 100,
+              left: (size.width - cameraSize) / 2,
+              child: _buildCircularCameraPreview(cameraSize),
+            ),
+
+            // Top Bar
+            Positioned(top: 0, left: 0, right: 0, child: _buildTopBar()),
+
+            // Status Message
+            Positioned(
+              top: 100 + cameraSize + 20,
+              left: 0,
+              right: 0,
+              child: _buildStatusMessage(),
+            ),
+
+            // Bottom Sheet
+            DraggableScrollableSheet(
+              initialChildSize: 0.25,
+              minChildSize: 0.15,
+              maxChildSize: 0.6,
+              builder: (context, scrollController) {
+                return _buildLocationSelector(scrollController);
+              },
+            ),
+
+            // Loading Overlay (Processing Submit)
+            if (_isProcessing)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCircularCameraPreview(double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: _isFaceDetected ? AppColors.success : AppColors.warning,
+          width: 5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (_isFaceDetected ? AppColors.success : AppColors.warning)
+                .withOpacity(0.5),
+            blurRadius: 20,
+            spreadRadius: 5,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: _isCameraInitialized && _cameraController!.value.isInitialized
+            ? _buildCameraPreviewContent()
+            : Container(
+                color: Colors.black,
+                child: const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildCameraPreviewContent() {
+    final size = _cameraController!.value.previewSize;
+    if (size == null) return Container(color: Colors.black);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return ClipRect(
+          child: OverflowBox(
+            maxHeight: double.infinity,
+            maxWidth: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: size.height,
+                height: size.width,
+                child: CameraPreview(_cameraController!),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+        ),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _isFaceDetected
+                  ? AppColors.success.withOpacity(0.9)
+                  : AppColors.warning.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _isFaceDetected ? Icons.face : Icons.face_retouching_off,
+                  color: Colors.white,
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _isFaceDetected ? 'Wajah Terdeteksi' : 'Cari Wajah...',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusMessage() {
+    // Show countdown for Flexi check-out
+    if (!_canProceed && _remainingSeconds > 0) {
+      final minutes = _remainingSeconds ~/ 60;
+      final seconds = _remainingSeconds % 60;
+
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.timer, color: AppColors.warning),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Tunggu untuk Check-Out',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.warning,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tunggu ${minutes > 0 ? '$minutes menit ' : ''}$seconds detik lagi',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Normal status message
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _isFaceDetected ? Icons.check_circle : Icons.info_outline,
+            color: _isFaceDetected ? AppColors.success : AppColors.info,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _statusMessage,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationSelector(ScrollController scrollController) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 8, bottom: 4),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(16),
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.location_on, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Lokasi Absensi',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (widget.config.user.isLocationFree)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.info,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'WFA Mode',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_allowedLocations.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text("Memuat lokasi..."),
+                    ),
+                  )
+                else
+                  ..._allowedLocations.map((location) {
+                    final isNearest = _selectedLocation?.id == location.id;
+                    final distance = location.distance ?? 0;
+                    final distanceText = distance < 1000
+                        ? '${distance.toStringAsFixed(0)} m'
+                        : '${(distance / 1000).toStringAsFixed(1)} km';
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      elevation: isNearest ? 4 : 1,
+                      color: isNearest
+                          ? AppColors.primary.withOpacity(0.1)
+                          : null,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: isNearest
+                            ? BorderSide(color: AppColors.primary, width: 2)
+                            : BorderSide.none,
+                      ),
+                      child: ListTile(
+                        leading: Icon(
+                          location.isInRange == true
+                              ? Icons.check_circle
+                              : Icons.location_on,
+                          color: location.isInRange == true
+                              ? AppColors.success
+                              : AppColors.textSecondary,
+                          size: 28,
+                        ),
+                        title: Text(
+                          location.name,
+                          style: TextStyle(
+                            fontWeight: isNearest
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '$distanceText dari Anda',
+                          style: TextStyle(
+                            color: isNearest
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                        trailing: Icon(
+                          isNearest
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          color: isNearest
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
+                        ),
+                        onTap: () {
+                          setState(() {
+                            _selectedLocation = location;
+                          });
+                        },
+                      ),
+                    );
+                  }).toList(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+

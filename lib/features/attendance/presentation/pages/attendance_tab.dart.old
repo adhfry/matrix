@@ -1,0 +1,574 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:camera/camera.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../../../../core/constants/app_constants.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_text_styles.dart';
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:io';
+
+class AttendanceTab extends ConsumerStatefulWidget {
+  const AttendanceTab({super.key});
+
+  @override
+  ConsumerState<AttendanceTab> createState() => _AttendanceTabState();
+}
+
+class _AttendanceTabState extends ConsumerState<AttendanceTab> {
+  CameraController? _cameraController;
+  bool _isCameraInitialized = false;
+  bool _isDetecting = false;
+  bool _isFaceDetected = false;
+  bool _isBlinkDetected = false;
+  int _blinkCount = 0;
+  String _statusMessage = 'Posisikan wajah Anda di dalam kotak';
+  
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableClassification: true,
+      enableLandmarks: true,
+      enableTracking: true,
+      minFaceSize: 0.15,
+      performanceMode: FaceDetectorMode.accurate,
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      final frontCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        frontCamera,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
+
+      await _cameraController!.initialize();
+      
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = true;
+        });
+        _startFaceDetection();
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Error: Tidak dapat mengakses kamera';
+      });
+    }
+  }
+
+  void _startFaceDetection() {
+    _cameraController?.startImageStream((image) {
+      if (_isDetecting) return;
+      _isDetecting = true;
+      _detectFacesAndBlinks(image).then((_) {
+        _isDetecting = false;
+      });
+    });
+  }
+
+  Future<void> _detectFacesAndBlinks(CameraImage image) async {
+    try {
+      final inputImage = _convertCameraImage(image);
+      if (inputImage == null) return;
+
+      final faces = await _faceDetector.processImage(inputImage);
+      
+      if (faces.isEmpty) {
+        setState(() {
+          _isFaceDetected = false;
+          _statusMessage = 'Wajah tidak terdeteksi';
+          _blinkCount = 0;
+        });
+        return;
+      }
+
+      final face = faces.first;
+      
+      // Check face position and size
+      if (face.boundingBox.width < 200) {
+        setState(() {
+          _statusMessage = 'Dekatkan wajah Anda';
+        });
+        return;
+      }
+
+      setState(() {
+        _isFaceDetected = true;
+      });
+
+      // Blink detection
+      final leftEyeOpen = face.leftEyeOpenProbability ?? 1.0;
+      final rightEyeOpen = face.rightEyeOpenProbability ?? 1.0;
+
+      if (leftEyeOpen < 0.1 && rightEyeOpen < 0.1) {
+        // Eyes closed
+        if (!_isBlinkDetected) {
+          _blinkCount++;
+          _isBlinkDetected = true;
+          
+          if (_blinkCount >= 2) {
+            setState(() {
+              _statusMessage = 'Kedipan terdeteksi! Siap untuk absen';
+            });
+            // Auto capture after 1 second
+            Future.delayed(const Duration(seconds: 1), () {
+              _captureAndSubmit();
+            });
+          } else {
+            setState(() {
+              _statusMessage = 'Kedipkan mata Anda ($_blinkCount/2)';
+            });
+          }
+        }
+      } else if (leftEyeOpen > 0.8 && rightEyeOpen > 0.8) {
+        // Eyes open
+        _isBlinkDetected = false;
+        if (_blinkCount < 2 && _blinkCount > 0) {
+          setState(() {
+            _statusMessage = 'Kedipkan mata lagi ($_blinkCount/2)';
+          });
+        } else if (_blinkCount == 0) {
+          setState(() {
+            _statusMessage = 'Wajah terdeteksi! Kedipkan mata 2x';
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore detection errors
+    }
+  }
+
+  InputImage? _convertCameraImage(CameraImage image) {
+    try {
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
+      }
+      final bytes = allBytes.done().buffer.asUint8List();
+
+      final Size imageSize = Size(
+        image.width.toDouble(),
+        image.height.toDouble(),
+      );
+
+      final InputImageRotation imageRotation = InputImageRotation.rotation0deg;
+
+      final InputImageFormat inputImageFormat = InputImageFormat.yuv420;
+
+      final planeData = image.planes.map(
+        (Plane plane) {
+          return InputImageMetadata(
+            size: Size(plane.width?.toDouble() ?? 0, plane.height?.toDouble() ?? 0),
+            rotation: imageRotation,
+            format: inputImageFormat,
+            bytesPerRow: plane.bytesPerRow,
+          );
+        },
+      ).toList();
+
+      final inputImageData = InputImageMetadata(
+        size: imageSize,
+        rotation: imageRotation,
+        format: inputImageFormat,
+        bytesPerRow: image.planes.first.bytesPerRow,
+      );
+
+      return InputImage.fromBytes(
+        bytes: bytes,
+        metadata: inputImageData,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> _captureAndSubmit() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    try {
+      await _cameraController?.stopImageStream();
+      
+      final image = await _cameraController?.takePicture();
+      
+      if (image != null && mounted) {
+        // TODO: Submit attendance with image
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => AttendanceConfirmationPage(
+              imagePath: image.path,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Error: Gagal mengambil foto';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    _faceDetector.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: _isCameraInitialized
+                  ? _buildCameraPreview()
+                  : _buildLoadingCamera(),
+            ),
+            _buildBottomInfo(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Absensi Wajah',
+            style: AppTextStyles.h5.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Pastikan wajah terlihat jelas dan kedipkan mata 2x',
+            style: AppTextStyles.bodySmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraPreview() {
+    return Stack(
+      children: [
+        Center(
+          child: AspectRatio(
+            aspectRatio: _cameraController!.value.aspectRatio,
+            child: CameraPreview(_cameraController!),
+          ),
+        ),
+        // Face detection overlay
+        CustomPaint(
+          painter: FaceDetectionPainter(
+            isFaceDetected: _isFaceDetected,
+            blinkCount: _blinkCount,
+          ),
+          child: Container(),
+        ),
+        // Status message
+        Positioned(
+          top: 24,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                color: _isFaceDetected
+                    ? AppColors.success.withValues(alpha: 0.9)
+                    : AppColors.warning.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Text(
+                _statusMessage,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+        // Blink indicator
+        if (_blinkCount > 0)
+          Positioned(
+            bottom: 24,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(2, (index) {
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: index < _blinkCount
+                          ? AppColors.success
+                          : Colors.white.withValues(alpha: 0.5),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildLoadingCamera() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Memuat kamera...'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomInfo() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.info_outline,
+                color: AppColors.info,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Kedipan mata digunakan untuk memastikan ini bukan foto',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.close),
+              label: const Text('Batal'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class FaceDetectionPainter extends CustomPainter {
+  final bool isFaceDetected;
+  final int blinkCount;
+
+  FaceDetectionPainter({
+    required this.isFaceDetected,
+    required this.blinkCount,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..color = isFaceDetected ? Colors.green : Colors.orange;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final ovalRect = Rect.fromCenter(
+      center: center,
+      width: size.width * 0.7,
+      height: size.height * 0.5,
+    );
+
+    canvas.drawOval(ovalRect, paint);
+
+    // Draw corners
+    final cornerLength = 30.0;
+    final cornerPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..color = isFaceDetected ? Colors.green : Colors.orange;
+
+    // Top-left
+    canvas.drawLine(
+      Offset(ovalRect.left, ovalRect.top),
+      Offset(ovalRect.left + cornerLength, ovalRect.top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(ovalRect.left, ovalRect.top),
+      Offset(ovalRect.left, ovalRect.top + cornerLength),
+      cornerPaint,
+    );
+
+    // Top-right
+    canvas.drawLine(
+      Offset(ovalRect.right, ovalRect.top),
+      Offset(ovalRect.right - cornerLength, ovalRect.top),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(ovalRect.right, ovalRect.top),
+      Offset(ovalRect.right, ovalRect.top + cornerLength),
+      cornerPaint,
+    );
+
+    // Bottom-left
+    canvas.drawLine(
+      Offset(ovalRect.left, ovalRect.bottom),
+      Offset(ovalRect.left + cornerLength, ovalRect.bottom),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(ovalRect.left, ovalRect.bottom),
+      Offset(ovalRect.left, ovalRect.bottom - cornerLength),
+      cornerPaint,
+    );
+
+    // Bottom-right
+    canvas.drawLine(
+      Offset(ovalRect.right, ovalRect.bottom),
+      Offset(ovalRect.right - cornerLength, ovalRect.bottom),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(ovalRect.right, ovalRect.bottom),
+      Offset(ovalRect.right, ovalRect.bottom - cornerLength),
+      cornerPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(FaceDetectionPainter oldDelegate) {
+    return oldDelegate.isFaceDetected != isFaceDetected ||
+           oldDelegate.blinkCount != blinkCount;
+  }
+}
+
+class AttendanceConfirmationPage extends StatelessWidget {
+  final String imagePath;
+
+  const AttendanceConfirmationPage({
+    super.key,
+    required this.imagePath,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Konfirmasi Absensi'),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Image.file(
+                File(imagePath),
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      // TODO: Submit attendance
+                      Navigator.pop(context);
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.check),
+                    label: const Text('Konfirmasi Check In'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Foto Ulang'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

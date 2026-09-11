@@ -1,0 +1,766 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import '../../../../core/constants/app_constants.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_text_styles.dart';
+import '../../../attendance/data/models/attendance_model.dart';
+import '../../../attendance/data/models/schedule_model.dart';
+import '../../../auth/presentation/providers/user_provider.dart';
+
+class HomeTab extends ConsumerStatefulWidget {
+  const HomeTab({super.key});
+
+  @override
+  ConsumerState<HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends ConsumerState<HomeTab> {
+  DateTime _currentTime = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    // Update waktu setiap detik
+    Future.delayed(const Duration(seconds: 1), _updateTime);
+  }
+
+  void _updateTime() {
+    if (mounted) {
+      setState(() {
+        _currentTime = DateTime.now();
+      });
+      Future.delayed(const Duration(seconds: 1), _updateTime);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: () async {
+            // TODO: Refresh dashboard data
+          },
+          child: CustomScrollView(
+            slivers: [
+              _buildAppBar(context),
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    _buildGreeting(),
+                    const SizedBox(height: 16),
+                    _buildTodayShiftCard(),
+                    const SizedBox(height: 16),
+                    _buildWorkProgressCard(),
+                    const SizedBox(height: 16),
+                    _buildCheckInOutCard(),
+                    const SizedBox(height: 16),
+                    _buildQuickStats(),
+                    const SizedBox(height: 16),
+                    _buildTomorrowSchedule(),
+                    const SizedBox(height: 16),
+                    _buildInfoCards(),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppBar(BuildContext context) {
+    final userAsync = ref.watch(userProfileProvider);
+    
+    return SliverAppBar(
+      floating: true,
+      backgroundColor: AppColors.primary,
+      expandedHeight: 80,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primary,
+                AppColors.primaryDark,
+              ],
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                userAsync.when(
+                  data: (user) => CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.white,
+                    backgroundImage: user?.foto != null 
+                      ? NetworkImage(user!.foto!)
+                      : null,
+                    child: user?.foto == null
+                      ? Text(
+                          user?.name.substring(0, 1).toUpperCase() ?? 'U',
+                          style: AppTextStyles.h5.copyWith(
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : null,
+                  ),
+                  loading: () => const CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.white,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  error: (_, __) => const CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.white,
+                    child: Icon(Icons.person, color: AppColors.primary),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'MATRIX Mobile',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      userAsync.when(
+                        data: (user) => Text(
+                          user?.name ?? 'Pengguna',
+                          style: AppTextStyles.h6.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        loading: () => Text(
+                          'Memuat...',
+                          style: AppTextStyles.h6.copyWith(
+                            color: Colors.white,
+                          ),
+                        ),
+                        error: (_, __) => Text(
+                          'Pengguna',
+                          style: AppTextStyles.h6.copyWith(
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                  onPressed: () {
+                    // TODO: Navigate to notifications
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'SiLAKES Labkesda Sumenep',
+                  style: AppTextStyles.caption.copyWith(
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        IconButton(
+          icon: Stack(
+            children: [
+              const Icon(Icons.notifications_outlined, color: Colors.white),
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: AppColors.error,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: const Text(
+                    '3',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          onPressed: () {
+            // TODO: Navigate to notifications
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGreeting() {
+    final hour = _currentTime.hour;
+    String greeting;
+    if (hour < 12) {
+      greeting = 'Selamat Pagi';
+    } else if (hour < 15) {
+      greeting = 'Selamat Siang';
+    } else if (hour < 18) {
+      greeting = 'Selamat Sore';
+    } else {
+      greeting = 'Selamat Malam';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            greeting,
+            style: AppTextStyles.h4.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(_currentTime),
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTodayShiftCard() {
+    // TODO: Get from provider
+    final todaySchedule = ScheduleModel(
+      id: 1,
+      userId: 1,
+      shiftId: 1,
+      scheduleDate: DateTime.now(),
+      status: 'scheduled',
+      shift: ShiftModel(
+        id: 1,
+        name: 'Pagi',
+        startTime: '08:00',
+        endTime: '16:00',
+        color: '#FFB74D',
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.shiftMorning,
+              AppColors.shiftMorning.withValues(alpha: 0.8),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.shiftMorning.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.wb_sunny,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shift Hari Ini',
+                          style: AppTextStyles.caption.copyWith(
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          todaySchedule.shift?.name ?? '-',
+                          style: AppTextStyles.h4.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Icon(Icons.access_time, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    todaySchedule.shift?.timeRange ?? '-',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWorkProgressCard() {
+    // TODO: Get from provider
+    final progress = 45.0; // 45% dari target 8 jam
+    final workHours = 3;
+    final workMinutes = 36;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Progress Kerja Hari Ini',
+                    style: AppTextStyles.h6,
+                  ),
+                  Text(
+                    '${progress.toInt()}%',
+                    style: AppTextStyles.h6.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: progress / 100,
+                  minHeight: 12,
+                  backgroundColor: AppColors.surfaceVariant,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    progress < 50
+                        ? AppColors.warning
+                        : progress < 80
+                            ? AppColors.info
+                            : AppColors.success,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '$workHours jam $workMinutes menit',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Text(
+                    'Target: 8 jam',
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCheckInOutCard() {
+    // TODO: Get from provider
+    final hasCheckedIn = true;
+    final checkInTime = DateTime.now().subtract(const Duration(hours: 3, minutes: 36));
+    final checkOutTime = null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Icon(
+                            Icons.login,
+                            color: AppColors.success,
+                            size: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Check In',
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      hasCheckedIn ? DateFormat('HH:mm').format(checkInTime) : '-',
+                      style: AppTextStyles.h5.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: hasCheckedIn ? AppColors.success : AppColors.textHint,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 40,
+                color: AppColors.divider,
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const SizedBox(width: 16),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppColors.error.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Icon(
+                            Icons.logout,
+                            color: AppColors.error,
+                            size: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Check Out',
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: Text(
+                        checkOutTime != null ? DateFormat('HH:mm').format(checkOutTime) : '-',
+                        style: AppTextStyles.h5.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: checkOutTime != null ? AppColors.error : AppColors.textHint,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickStats() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildStatItem(
+              icon: Icons.check_circle,
+              label: 'Hadir',
+              value: '20',
+              color: AppColors.success,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildStatItem(
+              icon: Icons.schedule,
+              label: 'Terlambat',
+              value: '3',
+              color: AppColors.warning,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildStatItem(
+              icon: Icons.cancel,
+              label: 'Tidak Hadir',
+              value: '2',
+              color: AppColors.error,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: AppTextStyles.h5.copyWith(
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTomorrowSchedule() {
+    // TODO: Get from provider
+    final tomorrowSchedule = ScheduleModel(
+      id: 2,
+      userId: 1,
+      shiftId: 2,
+      scheduleDate: DateTime.now().add(const Duration(days: 1)),
+      status: 'scheduled',
+      shift: ShiftModel(
+        id: 2,
+        name: 'Siang',
+        startTime: '14:00',
+        endTime: '22:00',
+        color: '#64B5F6',
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.shiftAfternoon.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.wb_twilight,
+                  color: AppColors.shiftAfternoon,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Jadwal Besok',
+                      style: AppTextStyles.caption.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tomorrowSchedule.shift?.name ?? '-',
+                      style: AppTextStyles.h6.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.access_time, size: 14, color: AppColors.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          tomorrowSchedule.shift?.timeRange ?? '-',
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCards() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Informasi Penting',
+            style: AppTextStyles.h6,
+          ),
+          const SizedBox(height: 12),
+          _buildInfoCard(
+            icon: Icons.info_outline,
+            title: 'Pengumuman',
+            description: 'Libur nasional tanggal 10 Januari 2026',
+            color: AppColors.info,
+          ),
+          const SizedBox(height: 8),
+          _buildInfoCard(
+            icon: Icons.payment,
+            title: 'Gaji Bulan Ini',
+            description: 'Slip gaji sudah tersedia, cek menu Akun',
+            color: AppColors.success,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoCard({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

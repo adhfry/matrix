@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "781570225660",
+    "project_id": "matrix-mobile-dba88",
+    "storage_bucket": "matrix-mobile-dba88.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:781570225660:android:302149e46a980c1c3d6e79",
+        "android_client_info": {
+          "package_name": "com.silakes.matrix"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMKTsHrdw_XI7lEiuwJKcVpQCu2UT0M-Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
