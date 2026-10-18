@@ -24,7 +24,10 @@ class _FakeAuth extends AuthRepository {
   @override
   Future<AppUser> refreshProfile() async {
     if (reject) {
-      throw ApiException('Sesi Anda berakhir. Silakan masuk lagi.', statusCode: 401);
+      throw ApiException(
+        'Sesi Anda berakhir. Silakan masuk lagi.',
+        statusCode: 401,
+      );
     }
     return _user;
   }

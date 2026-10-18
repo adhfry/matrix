@@ -7,6 +7,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../app/theme/tokens.dart';
 import '../logic/ktp_image.dart';
+import '../logic/ktp_quality.dart';
+import 'ktp_quality_sheet.dart';
 import 'scan_review_screen.dart';
 
 /// Kamera belakang dengan bingkai seukuran KTP. Foto dipotong ke bingkai.
@@ -73,9 +75,17 @@ class _ScanCameraScreenState extends State<ScanCameraScreen>
     try {
       final x = await cam.takePicture();
       final file = await prepareKtpPhoto(File(x.path));
+      final quality = await assessKtp(file);
+      if (!mounted) return;
+      if (!await confirmKtpQuality(context, file, quality)) {
+        if (mounted) setState(() => _busy = false);
+        return;
+      }
       if (!mounted) return;
       await Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(builder: (_) => ScanReviewScreen(photo: file)),
+        MaterialPageRoute<void>(
+          builder: (_) => ScanReviewScreen(photo: file, quality: quality),
+        ),
       );
     } on CameraException catch (e) {
       setState(() {

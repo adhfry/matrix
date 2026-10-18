@@ -163,7 +163,104 @@ Future<void> launchEarlyCheckout(
     );
     return;
   }
-  await _openScreen(context, ref, AttendanceScreen(config: cfg, early: true));
+  final reason = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _EarlyReasonSheet(info: cfg.early),
+  );
+  if (reason == null || !context.mounted) return;
+  await _openScreen(
+    context,
+    ref,
+    AttendanceScreen(config: cfg, early: true, reason: reason),
+  );
+}
+
+/// Alasan pulang lebih awal diisi sebelum kamera dibuka, supaya keyboard tidak
+/// menutupi kamera dan alasan pasti ada saat foto diambil.
+class _EarlyReasonSheet extends StatefulWidget {
+  const _EarlyReasonSheet({required this.info});
+  final EarlyCheckoutInfo info;
+
+  @override
+  State<_EarlyReasonSheet> createState() => _EarlyReasonSheetState();
+}
+
+class _EarlyReasonSheetState extends State<_EarlyReasonSheet> {
+  final _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  bool get _ok => _reason.text.trim().length >= 5;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    final info = widget.info;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Sp.xl, 0, Sp.xl, Sp.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconBadge(
+                Icons.directions_walk_rounded,
+                size: 52,
+                background: c.pendingContainer,
+                color: c.pending,
+              ),
+              const SizedBox(height: Sp.lg),
+              Text('Pulang lebih awal', style: context.text.titleMedium),
+              const SizedBox(height: Sp.xs),
+              Text(
+                info.earlySeconds > 0
+                    ? 'Jam kerja yang ditinggalkan sekitar ${Fmt.hmLong(info.earlySeconds)}${info.workEnd == null ? '' : ' (sampai ${Fmt.timeOf(info.workEnd!)})'}. Waktu ini dihitung pulang cepat dan memotong jam kerja per detik.'
+                    : 'Waktu yang ditinggalkan dihitung pulang cepat dan memotong jam kerja per detik.',
+                style: context.text.bodyMedium?.copyWith(color: c.inkMuted),
+              ),
+              const SizedBox(height: Sp.lg),
+              TextField(
+                controller: _reason,
+                autofocus: true,
+                maxLength: 255,
+                minLines: 2,
+                maxLines: 4,
+                textCapitalization: TextCapitalization.sentences,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Alasan pulang lebih awal *',
+                  hintText: 'Contoh: anak sakit, dijemput dari sekolah',
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: Sp.sm),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _ok
+                      ? () => Navigator.pop(context, _reason.text.trim())
+                      : null,
+                  icon: const Icon(Icons.camera_front_rounded),
+                  label: Text(
+                    _ok
+                        ? 'Lanjut ke foto wajah'
+                        : 'Tulis alasan minimal 5 huruf',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> _openScreen(

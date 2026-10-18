@@ -12,15 +12,20 @@ import '../../../core/format/fmt.dart';
 import '../../../core/widgets/mx.dart';
 import '../../auth/ui/auth_scaffold.dart';
 import '../data/scanner_repository.dart';
+import '../logic/ktp_device_ocr.dart';
 import '../logic/ktp_image.dart';
+import '../logic/ktp_parser.dart';
+import '../logic/ktp_quality.dart';
 import 'scan_camera_screen.dart';
 
-/// Baca KTP (OCR server) -> petugas memeriksa & melengkapi -> simpan pasien.
+/// Baca KTP (OCR di perangkat; AI server bila hasil kurang yakin) -> petugas
+/// memeriksa & melengkapi -> simpan pasien.
 class ScanReviewScreen extends ConsumerStatefulWidget {
-  const ScanReviewScreen({super.key, this.photo});
+  const ScanReviewScreen({super.key, this.photo, this.quality});
 
   /// Null = isi manual tanpa foto.
   final File? photo;
+  final KtpQuality? quality;
 
   @override
   ConsumerState<ScanReviewScreen> createState() => _ScanReviewScreenState();
@@ -38,6 +43,8 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
   String? _agama;
 
   bool _reading = false;
+  bool _readingAi = false;
+  _Source _source = _Source.none;
   double _upload = 0;
   String? _ocrError;
   List<KtpCheck> _checks = const [];
@@ -80,9 +87,40 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
     super.dispose();
   }
 
+  /// Baca di perangkat dulu (gratis, tanpa internet); bila kurang yakin,
+  /// minta bantuan AI server.
   Future<void> _read() async {
     setState(() {
       _reading = true;
+      _readingAi = false;
+      _ocrError = null;
+    });
+    KtpParse? local;
+    try {
+      local = await readKtpOnDevice(widget.photo!, quality: widget.quality);
+    } catch (e) {
+      debugPrint('[scan] OCR perangkat gagal: $e');
+    }
+    if (!mounted) return;
+    if (local != null) {
+      _fill(local.fields);
+      setState(() {
+        _checks = local!.checks;
+        _source = _Source.device;
+      });
+      if (local.confident) {
+        HapticFeedback.lightImpact();
+        setState(() => _reading = false);
+        return;
+      }
+    }
+    await _readAi();
+  }
+
+  Future<void> _readAi() async {
+    setState(() {
+      _reading = true;
+      _readingAi = true;
       _ocrError = null;
       _upload = 0;
     });
@@ -101,9 +139,15 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
       setState(() {
         _checks = r.checks;
         _existing = r.existing;
+        _source = _Source.ai;
       });
     } on ApiException catch (e) {
-      setState(() => _ocrError = e.message);
+      // Hasil perangkat tetap dipakai; AI gagal bukan jalan buntu.
+      setState(
+        () => _ocrError = _source == _Source.device
+            ? 'Bantuan AI tidak tersedia: ${e.message} Lengkapi kolom yang ditandai secara manual.'
+            : e.message,
+      );
     } finally {
       if (mounted) setState(() => _reading = false);
     }
@@ -446,18 +490,24 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _upload < 1
-                            ? 'Mengirim foto… ${(_upload * 100).round()}%'
-                            : 'Membaca KTP…',
+                        !_readingAi
+                            ? 'Membaca KTP di perangkat…'
+                            : (_upload < 1
+                                  ? 'Meminta bantuan AI… ${(_upload * 100).round()}%'
+                                  : 'AI sedang membaca KTP…'),
                         style: context.text.titleSmall,
                       ),
                       const SizedBox(height: Sp.sm),
-                      _upload < 1
+                      _readingAi && _upload < 1
                           ? MxProgress(value: _upload)
                           : const LinearProgressIndicator(),
                       const SizedBox(height: Sp.sm),
                       Text(
-                        'Biasanya 3–8 detik.',
+                        !_readingAi
+                            ? 'Tanpa internet, biasanya di bawah 2 detik.'
+                            : (_source == _Source.device
+                                  ? 'Sebagian kolom belum terbaca jelas. Biasanya 3–8 detik.'
+                                  : 'Biasanya 3–8 detik.'),
                         style: context.text.bodySmall,
                       ),
                     ],
@@ -473,8 +523,14 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: _read,
-                            child: const Text('Baca ulang'),
+                            onPressed: _source == _Source.device
+                                ? _readAi
+                                : _read,
+                            child: Text(
+                              _source == _Source.device
+                                  ? 'Coba AI lagi'
+                                  : 'Baca ulang',
+                            ),
                           ),
                         ),
                         const SizedBox(width: Sp.sm),
@@ -506,6 +562,34 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
                   'Semua kolom terbaca. Tetap periksa sebelum simpan.',
                   tone: Tone.ok,
                   icon: Icons.check_rounded,
+                ),
+              if (!_reading && _source != _Source.none)
+                Row(
+                  children: [
+                    Icon(
+                      _source == _Source.device
+                          ? Icons.phone_android_rounded
+                          : Icons.cloud_done_outlined,
+                      size: 16,
+                      color: c.inkMuted,
+                    ),
+                    const SizedBox(width: Sp.xs),
+                    Expanded(
+                      child: Text(
+                        _source == _Source.device
+                            ? 'Dibaca di perangkat'
+                            : 'Dibaca dengan bantuan AI',
+                        style: context.text.bodySmall?.copyWith(
+                          color: c.inkMuted,
+                        ),
+                      ),
+                    ),
+                    if (_source == _Source.device && _ocrError == null)
+                      TextButton(
+                        onPressed: _readAi,
+                        child: const Text('Baca dengan AI'),
+                      ),
+                  ],
                 ),
               const SizedBox(height: Sp.lg),
             ],
@@ -742,3 +826,5 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
     );
   }
 }
+
+enum _Source { none, device, ai }

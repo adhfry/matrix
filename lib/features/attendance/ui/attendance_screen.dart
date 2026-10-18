@@ -12,10 +12,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../app/theme/tokens.dart';
 import '../../../core/api/api_client.dart';
-import '../../../core/format/fmt.dart';
 import '../../../core/storage/secure_store.dart';
 import '../../../core/widgets/finance.dart';
-import '../../../core/widgets/mx.dart';
 import '../data/attendance_models.dart';
 import '../data/attendance_repository.dart';
 import '../logic/liveness.dart';
@@ -24,7 +22,8 @@ import 'preflight_view.dart';
 import 'voice_guide.dart';
 
 enum _Phase {
-  preflight,
+  /// Menunggu izin kamera.
+  waitCamera,
   starting,
   scanning,
   sending,
@@ -33,14 +32,22 @@ enum _Phase {
   cameraBlocked,
 }
 
-/// Absen wajah: pra-cek kesiapan -> kamera depan -> wajah tegak -> kedip 2x ->
-/// foto otomatis -> kirim. [early] = pulang lebih awal (bebas radius, wajib alasan).
-/// Mengembalikan pesan server lewat Navigator.pop.
+/// Absen wajah dengan peta di latar (tata letak v1): kamera bundar di atas,
+/// posisi & titik absen di peta, panel lokasi + pemeriksaan di bawah.
+/// Kamera langsung terbuka; kedipan baru dihitung setelah semua syarat lokasi
+/// terpenuhi, lalu foto diambil otomatis. [early] = pulang lebih awal (bebas
+/// radius, alasan sudah diisi sebelumnya). Pesan server dikembalikan lewat pop.
 class AttendanceScreen extends ConsumerStatefulWidget {
-  const AttendanceScreen({super.key, required this.config, this.early = false});
+  const AttendanceScreen({
+    super.key,
+    required this.config,
+    this.early = false,
+    this.reason,
+  });
 
   final AttendanceConfig config;
   final bool early;
+  final String? reason;
 
   @override
   ConsumerState<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -49,7 +56,7 @@ class AttendanceScreen extends ConsumerStatefulWidget {
 class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     with WidgetsBindingObserver {
   late final AttendancePreflight _pre;
-  final _reason = TextEditingController();
+  final _mapKey = GlobalKey<AttendanceMapState>();
 
   CameraController? _camera;
   CameraDescription? _cameraDesc;
@@ -64,9 +71,14 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
   final _liveness = LivenessTracker();
   VoiceGuide? _voice;
   bool _detecting = false;
+  bool _opening = false;
 
-  _Phase _phase = _Phase.preflight;
+  /// Aplikasi di latar: kamera dilepas dan tidak boleh dibuka.
+  bool _paused = false;
+
+  _Phase _phase = _Phase.waitCamera;
   LivenessStep _step = LivenessStep.noFace;
+  bool _faceSeen = false;
   String? _error;
   String? _resultMessage;
   File? _capture;
@@ -84,36 +96,50 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
       locationFree: widget.config.isLocationFree,
       radiusRequired: !widget.early,
     )..addListener(_onPreflight);
-    _reason.addListener(() => setState(() {}));
     _pre.start();
     ref.read(secureStoreProvider).ttsEnabled().then((on) async {
-      _voice = VoiceGuide(enabled: on);
-      await _voice!.init();
+      final v = VoiceGuide(enabled: on);
+      await v.init();
+      if (mounted) {
+        _voice = v;
+      } else {
+        v.dispose();
+      }
     });
   }
 
   void _onPreflight() {
     if (!mounted) return;
-    // Saat kamera berjalan, lokasi tetap dipantau: keluar radius = tunda foto.
+    _maybeOpenCamera();
     setState(() {});
   }
 
-  bool get _reasonOk => !widget.early || _reason.text.trim().length >= 5;
+  void _maybeOpenCamera() {
+    if (!_paused &&
+        _phase == _Phase.waitCamera &&
+        _pre.camera?.isGranted == true) {
+      unawaited(_openCamera());
+    }
+  }
 
   // ---------------- Kamera & wajah ----------------
 
   Future<void> _openCamera() async {
+    if (_opening || _camera != null) return;
+    _opening = true;
     setState(() {
       _phase = _Phase.starting;
       _error = null;
     });
+    CameraController? ctrl;
     try {
       final cams = await availableCameras();
+      if (cams.isEmpty) throw CameraException('none', 'Tidak ada kamera');
       _cameraDesc = cams.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cams.first,
       );
-      final ctrl = CameraController(
+      ctrl = CameraController(
         _cameraDesc!,
         ResolutionPreset.medium,
         enableAudio: false,
@@ -122,12 +148,18 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
             : ImageFormatGroup.bgra8888,
       );
       await ctrl.initialize();
-      if (!mounted) {
+      if (!mounted || _paused) {
         await ctrl.dispose();
+        if (mounted) setState(() => _phase = _Phase.waitCamera);
         return;
       }
       _camera = ctrl;
-      setState(() => _phase = _Phase.scanning);
+      _liveness.reset();
+      setState(() {
+        _phase = _Phase.scanning;
+        _step = LivenessStep.noFace;
+        _faceSeen = false;
+      });
       await ctrl.startImageStream(_onFrame);
       unawaited(
         _voice?.once(
@@ -136,12 +168,30 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
         ),
       );
     } on CameraException catch (e) {
+      await ctrl?.dispose();
+      _camera = null;
+      if (!mounted) return;
       setState(() {
         _phase = _Phase.cameraBlocked;
-        _error =
-            'Kamera tidak bisa dibuka (${e.code}). Tutup aplikasi lain yang memakai kamera lalu coba lagi.';
+        _error = e.code == 'none'
+            ? 'Perangkat ini tidak punya kamera depan.'
+            : 'Kamera tidak bisa dibuka (${e.code}). Tutup aplikasi lain yang memakai kamera lalu coba lagi.';
       });
+    } finally {
+      _opening = false;
     }
+  }
+
+  Future<void> _releaseCamera() async {
+    final cam = _camera;
+    _camera = null;
+    if (cam == null) return;
+    try {
+      if (cam.value.isStreamingImages) await cam.stopImageStream();
+    } on CameraException {
+      // dilepas juga di bawah
+    }
+    await cam.dispose();
   }
 
   Future<void> _onFrame(CameraImage image) async {
@@ -158,6 +208,18 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
           : faces.reduce(
               (a, b) => a.boundingBox.width > b.boundingBox.width ? a : b,
             );
+      if ((face != null) != _faceSeen) setState(() => _faceSeen = face != null);
+
+      // Kedipan hanya dihitung bila lokasi sudah memenuhi syarat, supaya foto
+      // tidak pernah diambil lalu ditolak karena lokasi.
+      if (!_pre.ready) {
+        if (_step != LivenessStep.noFace || _liveness.blinks > 0) {
+          _liveness.reset();
+          setState(() => _step = LivenessStep.noFace);
+        }
+        return;
+      }
+
       final shortSide = math.min(image.width, image.height).toDouble();
       final step = _liveness.update(
         hasFace: face != null,
@@ -212,16 +274,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
   Future<void> _captureAndSend() async {
     final cam = _camera;
     final pos = _pre.position;
-    if (cam == null) return;
+    if (cam == null || _phase != _Phase.scanning) return;
     if (!_pre.ready || pos == null) {
       _liveness.reset();
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _step = LivenessStep.noFace;
-        _error = pos == null
-            ? 'Lokasi belum ditemukan. Tunggu sebentar.'
-            : 'Lokasi berubah dan tidak lagi memenuhi syarat. Periksa panel lokasi di bawah.';
-      });
+      setState(() => _step = LivenessStep.noFace);
       return;
     }
     setState(() {
@@ -229,8 +285,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
       _error = null;
     });
     try {
-      await cam.stopImageStream();
+      if (cam.value.isStreamingImages) await cam.stopImageStream();
       final shot = await cam.takePicture();
+      if (!mounted) return;
       setState(() => _capture = File(shot.path));
       final repo = ref.read(attendanceRepositoryProvider);
       final msg = widget.early
@@ -238,7 +295,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
               latitude: pos.latitude,
               longitude: pos.longitude,
               photo: File(shot.path),
-              reason: _reason.text.trim(),
+              reason: widget.reason ?? '',
             )
           : await repo.submit(
               checkOut: widget.config.isCheckOut,
@@ -256,7 +313,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
         _resultMessage = msg;
       });
       await _voice?.say('Terima kasih');
-      await Future<void>.delayed(const Duration(milliseconds: 900));
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
       if (mounted) Navigator.of(context).pop(msg);
     } on ApiException catch (e) {
       _fail(e.message);
@@ -278,18 +335,21 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     _liveness.reset();
     _voice?.reset('blink');
     setState(() {
-      _phase = _Phase.scanning;
       _step = LivenessStep.noFace;
       _error = null;
       _capture = null;
     });
     final cam = _camera;
-    if (cam != null && !cam.value.isStreamingImages) {
-      await cam.startImageStream(_onFrame);
+    if (cam == null) {
+      setState(() => _phase = _Phase.waitCamera);
+      await _openCamera();
+      return;
     }
+    setState(() => _phase = _Phase.scanning);
+    if (!cam.value.isStreamingImages) await cam.startImageStream(_onFrame);
   }
 
-  // ---------------- Aksi pra-cek ----------------
+  // ---------------- Aksi pemeriksaan ----------------
 
   Future<void> _onCheckAction(CheckId id) async {
     switch (id) {
@@ -319,18 +379,31 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final cam = _camera;
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      if (cam != null && cam.value.isStreamingImages) cam.stopImageStream();
-    } else if (state == AppLifecycleState.resumed) {
-      // Kembali dari pengaturan izin / GPS / aplikasi peta.
-      _pre.recheck();
-      if (cam != null &&
-          _phase == _Phase.scanning &&
-          !cam.value.isStreamingImages) {
-        cam.startImageStream(_onFrame);
-      }
+    switch (state) {
+      // Bukan `inactive`: itu juga terpicu oleh dialog izin.
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        _paused = true;
+        // Android mencabut kamera di latar; lepas dengan rapi kecuali foto
+        // sedang dikirim.
+        if (_phase == _Phase.scanning || _phase == _Phase.starting) {
+          unawaited(_releaseCamera());
+          _liveness.reset();
+          if (mounted) {
+            setState(() {
+              _phase = _Phase.waitCamera;
+              _step = LivenessStep.noFace;
+            });
+          }
+        }
+      case AppLifecycleState.resumed:
+        _paused = false;
+        // Kembali dari pengaturan izin / GPS / aplikasi peta.
+        unawaited(_pre.recheck());
+        _maybeOpenCamera();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
     }
   }
 
@@ -339,8 +412,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     WidgetsBinding.instance.removeObserver(this);
     _pre.removeListener(_onPreflight);
     _pre.dispose();
-    _reason.dispose();
-    _camera?.dispose();
+    unawaited(_releaseCamera());
     _detector.close();
     _voice?.dispose();
     super.dispose();
@@ -350,433 +422,551 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
 
   @override
   Widget build(BuildContext context) {
-    final inPreflight = _phase == _Phase.preflight;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_title),
-        leading: CloseButton(
-          onPressed: _phase == _Phase.sending
-              ? null
-              : () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: AnimatedSwitcher(
-        duration: Motion.of(context, Motion.emphasis),
-        child: inPreflight ? _buildPreflight(context) : _buildCamera(context),
-      ),
-    );
-  }
-
-  Widget _buildPreflight(BuildContext context) {
     final c = context.mx;
-    final ready = _pre.ready && _reasonOk;
-    final blocking = _pre
-        .items()
-        .where((i) => i.state == CheckState.fail)
-        .firstOrNull;
-    final early = widget.config.early;
-    return Column(
-      key: const ValueKey('pre'),
-      children: [
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(Sp.gutter, 0, Sp.gutter, Sp.lg),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final mq = MediaQuery.of(context);
+    final size = mq.size;
+    final diameter = math.min(size.width - 150, 240.0);
+    final circleTop = mq.padding.top + 72;
+    final statusTop = circleTop + diameter + Sp.lg;
+    const statusHeight = 100.0;
+    // Panel bawah awalnya hanya baris lokasi (+ alasan), supaya ada pita peta
+    // yang lega antara kartu status dan panel.
+    final sheetPeek =
+        (widget.early ? 196.0 : 128.0) + mq.padding.bottom + Sp.md;
+    final sheetMin = (sheetPeek / size.height).clamp(0.12, 0.4);
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      child: PopScope(
+        canPop: _phase != _Phase.sending,
+        child: Scaffold(
+          backgroundColor: c.canvas,
+          body: Stack(
             children: [
-              StaggerIn(
-                index: 0,
-                child: PreflightMap(
+              Positioned.fill(
+                child: AttendanceMap(
+                  key: _mapKey,
                   pre: _pre,
-                  onNavigate: () => openNavigation(context, _pre.nearest),
+                  fitPadding: EdgeInsets.fromLTRB(
+                    56,
+                    statusTop + statusHeight + Sp.lg,
+                    56,
+                    size.height * sheetMin + Sp.lg,
+                  ),
                 ),
               ),
-              const SizedBox(height: Sp.lg),
-              if (widget.early) ...[
-                StaggerIn(
-                  index: 1,
-                  child: MxCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            IconBadge(
-                              Icons.directions_walk_rounded,
-                              size: 40,
-                              background: c.pendingContainer,
-                              color: c.pending,
-                            ),
-                            const SizedBox(width: Sp.md),
-                            Expanded(
-                              child: Text(
-                                'Check-out sebelum jendela check-out',
-                                style: context.text.titleSmall,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: Sp.md),
-                        Text(
-                          early.earlySeconds > 0
-                              ? 'Jam kerja yang ditinggalkan sekitar ${Fmt.hmLong(early.earlySeconds)} (sampai ${early.workEnd == null ? 'jam pulang' : Fmt.timeOf(early.workEnd!)}). Waktu ini dihitung pulang cepat dan memotong jam kerja per detik.'
-                              : 'Waktu yang ditinggalkan dihitung pulang cepat dan memotong jam kerja per detik.',
-                          style: context.text.bodyMedium?.copyWith(
-                            color: c.inkMuted,
-                          ),
-                        ),
-                        const SizedBox(height: Sp.md),
-                        TextField(
-                          controller: _reason,
-                          maxLength: 255,
-                          minLines: 2,
-                          maxLines: 4,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                            labelText: 'Alasan pulang lebih awal *',
-                            hintText:
-                                'Contoh: anak sakit, dijemput dari sekolah',
-                            alignLabelWithHint: true,
-                          ),
-                        ),
-                      ],
+              // Kabut lembut di bagian atas supaya kamera & teks terbaca di
+              // atas peta; bagian tengah tetap jernih untuk posisi.
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: statusTop + statusHeight + Sp.xl,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          c.canvas.withValues(alpha: 0.72),
+                          c.canvas.withValues(alpha: 0.45),
+                          c.canvas.withValues(alpha: 0),
+                        ],
+                        stops: const [0, 0.6, 1],
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: Sp.lg),
-              ],
-              StaggerIn(
-                index: 2,
-                child: PreflightChecklist(
-                  items: _pre.items(),
+              ),
+              Positioned(
+                top: mq.padding.top + Sp.sm,
+                left: Sp.md,
+                right: Sp.md,
+                child: _TopBar(
+                  title: _title,
+                  subtitle: widget.config.shift?.name,
+                  canClose: _phase != _Phase.sending,
+                  face: _phase == _Phase.scanning ? _faceSeen : null,
+                ),
+              ),
+              Positioned(
+                top: circleTop,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: _FaceCircle(
+                    diameter: diameter,
+                    camera: _camera,
+                    phase: _phase,
+                    progress: _progress,
+                    waiting: _phase == _Phase.scanning && !_pre.ready,
+                    capture: _capture,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: statusTop,
+                left: Sp.gutter,
+                right: Sp.gutter,
+                child: _StatusCard(
+                  height: statusHeight,
+                  status: _status(),
+                  steps: _steps,
+                  onRetry: switch (_phase) {
+                    _Phase.failed => _retry,
+                    _Phase.cameraBlocked => () {
+                      setState(() => _phase = _Phase.waitCamera);
+                      _openCamera();
+                    },
+                    _ => null,
+                  },
+                ),
+              ),
+              DraggableScrollableSheet(
+                initialChildSize: sheetMin,
+                minChildSize: sheetMin,
+                maxChildSize: 0.8,
+                snap: true,
+                builder: (context, scroll) => _Sheet(
+                  scroll: scroll,
+                  pre: _pre,
+                  early: widget.early,
+                  reason: widget.reason,
+                  onRecenter: () => _mapKey.currentState?.recenter(),
                   onAction: _onCheckAction,
                 ),
               ),
             ],
           ),
         ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              Sp.gutter,
-              Sp.sm,
-              Sp.gutter,
-              Sp.md,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedSwitcher(
-                  duration: Motion.of(context, Motion.standard),
-                  child: ready
-                      ? const SizedBox.shrink()
-                      : Padding(
-                          key: ValueKey(blocking?.id),
-                          padding: const EdgeInsets.only(bottom: Sp.sm),
-                          child: Text(
-                            blocking != null
-                                ? '${blocking.title}: ${blocking.detail}'
-                                : (!_reasonOk
-                                      ? 'Tulis alasan minimal 5 huruf.'
-                                      : 'Menyiapkan pemeriksaan…'),
-                            textAlign: TextAlign.center,
-                            style: context.text.bodySmall?.copyWith(
-                              color: blocking != null ? c.alert : c.inkMuted,
-                            ),
-                          ),
-                        ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: ready ? _openCamera : null,
-                    icon: const Icon(Icons.camera_front_rounded),
-                    label: Text(
-                      ready ? 'Lanjut ke foto wajah' : 'Menunggu semua siap',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildCamera(BuildContext context) {
+  /// Kemajuan cincin kamera: wajah -> kedip 1 -> kedip 2 -> terkirim.
+  double get _progress => switch (_phase) {
+    _Phase.success => 1,
+    _Phase.sending => 0.92,
+    _Phase.scanning when _pre.ready => switch (_step) {
+      LivenessStep.noFace => 0,
+      LivenessStep.tilted || LivenessStep.tooFar => 0.12,
+      LivenessStep.blink => 0.3 + 0.3 * math.min(_liveness.blinks, 2),
+      LivenessStep.done => 0.92,
+    },
+    _ => 0,
+  };
+
+  ({bool face, int blinks, bool sent}) get _steps => (
+    face:
+        _phase.index >= _Phase.sending.index &&
+            _phase != _Phase.cameraBlocked ||
+        _step == LivenessStep.blink ||
+        _step == LivenessStep.done,
+    blinks: _phase == _Phase.success || _phase == _Phase.sending
+        ? 2
+        : math.min(_liveness.blinks, 2),
+    sent: _phase == _Phase.success,
+  );
+
+  _Status _status() {
+    switch (_phase) {
+      case _Phase.waitCamera:
+        final denied = _pre.camera != null && _pre.camera?.isGranted != true;
+        return _Status(
+          denied ? Icons.no_photography_outlined : Icons.camera_front_outlined,
+          denied ? 'Izinkan kamera' : 'Menyiapkan kamera…',
+          denied
+              ? 'Kamera depan dipakai untuk foto wajah. Ketuk "Izinkan" di panel bawah.'
+              : 'Sebentar, kamera depan sedang disiapkan.',
+          denied ? _Tone.alert : _Tone.busy,
+        );
+      case _Phase.starting:
+        return const _Status(
+          Icons.camera_front_outlined,
+          'Membuka kamera…',
+          'Sebentar, kamera depan sedang disiapkan.',
+          _Tone.busy,
+        );
+      case _Phase.cameraBlocked:
+        return _Status(
+          Icons.no_photography_outlined,
+          'Kamera tidak tersedia',
+          _error ?? 'Kamera tidak bisa dibuka.',
+          _Tone.alert,
+        );
+      case _Phase.sending:
+        return const _Status(
+          Icons.cloud_upload_outlined,
+          'Mengirim absen…',
+          'Foto & lokasi sedang dikirim. Jangan tutup layar ini.',
+          _Tone.busy,
+        );
+      case _Phase.success:
+        return _Status(
+          Icons.check_circle_rounded,
+          'Absen tercatat',
+          _resultMessage ?? 'Terima kasih.',
+          _Tone.ok,
+        );
+      case _Phase.failed:
+        return _Status(
+          Icons.error_outline_rounded,
+          'Absen belum tercatat',
+          _error ?? 'Coba lagi.',
+          _Tone.alert,
+        );
+      case _Phase.scanning:
+        if (!_pre.ready) {
+          final block = _pre
+              .items()
+              .where((i) => i.state == CheckState.fail)
+              .firstOrNull;
+          return block == null
+              ? const _Status(
+                  Icons.location_searching_rounded,
+                  'Memeriksa lokasi…',
+                  'Kedipan dihitung setelah lokasi siap.',
+                  _Tone.busy,
+                )
+              : _Status(
+                  Icons.wrong_location_outlined,
+                  block.title,
+                  block.detail,
+                  _Tone.alert,
+                );
+        }
+        return switch (_step) {
+          LivenessStep.noFace => const _Status(
+            Icons.face_outlined,
+            'Hadapkan wajah ke kamera',
+            'Posisikan wajah di dalam lingkaran.',
+            _Tone.neutral,
+          ),
+          LivenessStep.tilted => const _Status(
+            Icons.face_outlined,
+            'Tegakkan kepala',
+            'Lihat lurus ke kamera.',
+            _Tone.neutral,
+          ),
+          LivenessStep.tooFar => const _Status(
+            Icons.zoom_in_rounded,
+            'Dekatkan wajah',
+            'Wajah harus mengisi sebagian besar lingkaran.',
+            _Tone.neutral,
+          ),
+          LivenessStep.blink => _Status(
+            Icons.visibility_outlined,
+            'Kedipkan mata dua kali',
+            'Foto diambil otomatis setelah kedipan kedua (${math.min(_liveness.blinks, 2)}/2).',
+            _Tone.ok,
+          ),
+          LivenessStep.done => const _Status(
+            Icons.photo_camera_outlined,
+            'Mengambil foto…',
+            'Tahan posisi sebentar.',
+            _Tone.ok,
+          ),
+        };
+    }
+  }
+}
+
+enum _Tone { neutral, busy, ok, alert }
+
+class _Status {
+  const _Status(this.icon, this.title, this.detail, this.tone);
+  final IconData icon;
+  final String title;
+  final String detail;
+  final _Tone tone;
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.title,
+    required this.subtitle,
+    required this.canClose,
+    required this.face,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool canClose;
+
+  /// Null = kamera belum memindai.
+  final bool? face;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.mx;
-    final n = _pre.nearest;
-    return ListView(
-      key: const ValueKey('cam'),
-      padding: const EdgeInsets.fromLTRB(Sp.gutter, 0, Sp.gutter, Sp.xl),
+    return Row(
       children: [
-        _CameraFrame(
-          camera: _camera,
-          phase: _phase,
-          step: _step,
-          capture: _capture,
-          error: _phase == _Phase.cameraBlocked ? _error : null,
+        Material(
+          color: c.surface,
+          shape: const CircleBorder(),
+          elevation: 0,
+          child: IconButton(
+            onPressed: canClose ? () => Navigator.of(context).pop() : null,
+            tooltip: 'Tutup',
+            icon: const Icon(Icons.close_rounded),
+          ),
         ),
-        const SizedBox(height: Sp.lg),
-        _Instruction(
-          phase: _phase,
-          step: _step,
-          blinks: _liveness.blinks,
-          resultMessage: _resultMessage,
-        ),
-        if (_error != null && _phase != _Phase.cameraBlocked) ...[
-          const SizedBox(height: Sp.md),
-          Semantics(
-            liveRegion: true,
+        const SizedBox(width: Sp.sm),
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
             child: Container(
-              padding: const EdgeInsets.all(Sp.md),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                color: c.alertContainer,
+                color: c.surface,
                 borderRadius: BorderRadius.circular(Radii.control),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.error_outline_rounded, color: c.alert, size: 20),
-                  const SizedBox(width: Sp.sm),
-                  Expanded(
-                    child: Text(
-                      _error!,
-                      style: context.text.bodyMedium?.copyWith(color: c.alert),
-                    ),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.titleSmall,
                   ),
+                  if (subtitle != null)
+                    Text(
+                      subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.labelSmall?.copyWith(
+                        color: c.inkMuted,
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
-        ],
-        if (_phase == _Phase.failed) ...[
-          const SizedBox(height: Sp.md),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _retry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Coba lagi'),
-            ),
-          ),
-        ],
-        if (_phase == _Phase.cameraBlocked) ...[
-          const SizedBox(height: Sp.md),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _openCamera,
-              child: const Text('Buka kamera lagi'),
-            ),
-          ),
-        ],
-        const SizedBox(height: Sp.lg),
-        MxCard(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Sp.lg,
-            vertical: Sp.md,
-          ),
-          child: Row(
-            children: [
-              IconBadge(
-                _pre.ready
-                    ? Icons.where_to_vote_outlined
-                    : Icons.wrong_location_outlined,
-                size: 36,
-                background: _pre.ready ? c.primaryContainer : c.alertContainer,
-                color: _pre.ready ? c.primary : c.alert,
-              ),
-              const SizedBox(width: Sp.md),
-              Expanded(
-                child: Text(
-                  widget.early || widget.config.isLocationFree
-                      ? 'Lokasi dicatat${_pre.position == null ? '' : ' (±${_pre.position!.accuracy.round()} m)'}'
-                      : (n == null
-                            ? 'Menunggu lokasi…'
-                            : '${n.name}: ${(n.distance ?? 0).round()} m dari titik${n.inRange ? '' : ' (di luar radius)'}'),
-                  style: context.text.bodyMedium,
+        ),
+        const SizedBox(width: Sp.sm),
+        AnimatedSwitcher(
+          duration: Motion.of(context, Motion.standard),
+          child: face == null
+              ? const SizedBox.shrink()
+              : Container(
+                  key: ValueKey(face),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: face! ? c.primaryContainer : c.surface,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        face! ? Icons.face_rounded : Icons.face_retouching_off,
+                        size: 16,
+                        color: face! ? c.primary : c.inkMuted,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        face! ? 'Wajah terdeteksi' : 'Mencari wajah',
+                        style: context.text.labelSmall?.copyWith(
+                          color: face! ? c.primary : c.inkMuted,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
         ),
       ],
     );
   }
 }
 
-class _CameraFrame extends StatelessWidget {
-  const _CameraFrame({
+/// Kamera bundar dengan cincin kemajuan.
+class _FaceCircle extends StatelessWidget {
+  const _FaceCircle({
+    required this.diameter,
     required this.camera,
     required this.phase,
-    required this.step,
+    required this.progress,
+    required this.waiting,
     this.capture,
-    this.error,
   });
 
+  final double diameter;
   final CameraController? camera;
   final _Phase phase;
-  final LivenessStep step;
+  final double progress;
+
+  /// Kamera aktif tetapi lokasi belum siap: pratinjau diredupkan.
+  final bool waiting;
   final File? capture;
-  final String? error;
 
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
-    final ringColor = switch (phase) {
-      _Phase.success => c.primaryBright,
-      _Phase.failed => c.alert,
-      _ =>
-        step == LivenessStep.blink || step == LivenessStep.done
-            ? c.primaryBright
-            : Colors.white70,
-    };
+    const ring = 6.0;
+    final inner = diameter - ring * 2 - 8;
 
     Widget content;
-    if (error != null) {
-      content = Container(
-        color: c.ink,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.all(Sp.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.no_photography_outlined, color: c.canvas, size: 40),
-            const SizedBox(height: Sp.md),
-            Text(
-              error!,
-              textAlign: TextAlign.center,
-              style: context.text.bodyMedium?.copyWith(color: c.canvas),
-            ),
-          ],
-        ),
-      );
-    } else if (capture != null) {
+    final cam = camera;
+    if (capture != null) {
       content = Transform(
         alignment: Alignment.center,
         transform: Matrix4.diagonal3Values(-1, 1, 1),
         child: Image.file(capture!, fit: BoxFit.cover),
       );
-    } else if (camera != null && camera!.value.isInitialized) {
-      // Ukuran kotak mengikuti rasio yang dipakai CameraPreview sendiri (1/aspectRatio
-      // saat potret) supaya tidak ada bingkai hitam, lalu dipotong memenuhi bidang.
-      final ratio = camera!.value.aspectRatio;
-      content = ClipRect(
-        child: OverflowBox(
-          alignment: Alignment.center,
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: 300,
-              height: 300 * ratio,
-              child: CameraPreview(camera!),
-            ),
-          ),
+    } else if (cam != null &&
+        cam.value.isInitialized &&
+        phase != _Phase.cameraBlocked) {
+      // Rasio pratinjau mengikuti CameraPreview (1/aspectRatio saat potret),
+      // lalu dipotong memenuhi lingkaran.
+      final ratio = cam.value.aspectRatio;
+      content = FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: 300,
+          height: 300 * ratio,
+          child: CameraPreview(cam),
         ),
       );
     } else {
-      content = Container(
-        color: c.ink,
-        alignment: Alignment.center,
-        child: Text(
-          'Membuka kamera…',
-          style: context.text.bodyMedium?.copyWith(color: c.canvas),
+      content = ColoredBox(
+        color: c.heroBottom,
+        child: Center(
+          child: phase == _Phase.cameraBlocked || phase == _Phase.waitCamera
+              ? Icon(
+                  Icons.camera_front_outlined,
+                  color: c.onHeroMuted,
+                  size: 44,
+                )
+              : SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: c.onHero,
+                  ),
+                ),
         ),
       );
     }
 
+    final ringColor = phase == _Phase.failed ? c.alert : c.primaryBright;
+
     return Semantics(
       label: 'Pratinjau kamera depan',
-      child: AspectRatio(
-        aspectRatio: 3 / 4,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(Radii.card),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              content,
-              if (error == null)
-                CustomPaint(
-                  painter: _OvalGuide(
-                    ring: ringColor,
-                    dim: phase == _Phase.success ? 0.55 : 0.35,
+      child: SizedBox.square(
+        dimension: diameter,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Alas putih + bayangan lembut memisahkan lingkaran dari peta.
+            Container(
+              decoration: BoxDecoration(
+                color: c.surface,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: c.shadow,
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
                   ),
+                ],
+              ),
+            ),
+            TweenAnimationBuilder<double>(
+              tween: Tween(end: phase == _Phase.failed ? 1 : progress),
+              duration: Motion.of(context, Motion.emphasis),
+              curve: Motion.curve,
+              builder: (context, t, _) => CustomPaint(
+                size: Size.square(diameter),
+                painter: _RingPainter(
+                  progress: t,
+                  track: c.line,
+                  color: ringColor,
+                  width: ring,
                 ),
-              if (phase == _Phase.sending)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: Sp.lg,
-                      vertical: Sp.md,
+              ),
+            ),
+            ClipOval(
+              child: SizedBox.square(
+                dimension: inner,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    content,
+                    AnimatedOpacity(
+                      opacity: waiting || phase == _Phase.sending ? 1 : 0,
+                      duration: Motion.of(context, Motion.standard),
+                      child: const ColoredBox(color: Color(0x66000000)),
                     ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(Radii.control),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
+                    if (phase == _Phase.sending)
+                      const Center(
+                        child: SizedBox(
+                          width: 32,
+                          height: 32,
                           child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
+                            strokeWidth: 3,
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(width: Sp.md),
-                        Text(
-                          'Mengirim absen…',
-                          style: context.text.labelLarge?.copyWith(
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    if (phase == _Phase.success)
+                      const Center(child: _SuccessMark()),
+                  ],
                 ),
-              if (phase == _Phase.success) const Center(child: _SuccessMark()),
-            ],
-          ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Oval panduan posisi wajah; area di luar oval digelapkan.
-class _OvalGuide extends CustomPainter {
-  _OvalGuide({required this.ring, required this.dim});
+class _RingPainter extends CustomPainter {
+  _RingPainter({
+    required this.progress,
+    required this.track,
+    required this.color,
+    required this.width,
+  });
 
-  final Color ring;
-  final double dim;
+  final double progress;
+  final Color track;
+  final Color color;
+  final double width;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final oval = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height * 0.45),
-      width: size.width * 0.66,
-      height: size.height * 0.62,
-    );
-    final outside = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Offset.zero & size)
-      ..addOval(oval);
-    canvas.drawPath(
-      outside,
-      Paint()..color = Colors.black.withValues(alpha: dim),
-    );
-    canvas.drawOval(
-      oval,
+    final rect = (Offset.zero & size).deflate(width / 2 + 2);
+    final base = Paint()
+      ..color = track
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width;
+    canvas.drawArc(rect, 0, math.pi * 2, false, base);
+    if (progress <= 0) return;
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      math.pi * 2 * progress.clamp(0, 1),
+      false,
       Paint()
-        ..color = ring
+        ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4,
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round,
     );
   }
 
   @override
-  bool shouldRepaint(_OvalGuide old) => old.ring != ring || old.dim != dim;
+  bool shouldRepaint(_RingPainter old) =>
+      old.progress != progress || old.color != color || old.track != track;
 }
 
 /// Satu-satunya animasi yang "dirayakan" (DESIGN.md §7): lingkaran jadi centang.
@@ -793,8 +983,8 @@ class _SuccessMark extends StatelessWidget {
       builder: (context, t, _) => Transform.scale(
         scale: 0.6 + 0.4 * t,
         child: Container(
-          width: 96,
-          height: 96,
+          width: 88,
+          height: 88,
           decoration: BoxDecoration(
             color: c.primaryBright,
             shape: BoxShape.circle,
@@ -832,106 +1022,155 @@ class _CheckPainter extends CustomPainter {
   bool shouldRepaint(_CheckPainter old) => old.progress != progress;
 }
 
-/// Langkah yang sedang berjalan + petunjuk satu kalimat.
-class _Instruction extends StatelessWidget {
-  const _Instruction({
-    required this.phase,
-    required this.step,
-    required this.blinks,
-    this.resultMessage,
+/// Kartu petunjuk di bawah kamera: satu kalimat aksi + rincian + langkah.
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({
+    required this.height,
+    required this.status,
+    required this.steps,
+    this.onRetry,
   });
 
-  final _Phase phase;
-  final LivenessStep step;
-  final int blinks;
-  final String? resultMessage;
+  final double height;
+  final _Status status;
+  final ({bool face, int blinks, bool sent}) steps;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
-    final text = switch (phase) {
-      _Phase.preflight || _Phase.starting => 'Menyiapkan kamera…',
-      _Phase.cameraBlocked => 'Kamera tidak tersedia.',
-      _Phase.sending => 'Foto diambil. Mengirim ke server…',
-      _Phase.success => resultMessage ?? 'Absen tercatat.',
-      _Phase.failed => 'Absen belum tercatat.',
-      _Phase.scanning => switch (step) {
-        LivenessStep.noFace => 'Posisikan wajah di dalam oval.',
-        LivenessStep.tilted => 'Tegakkan kepala dan lihat lurus ke kamera.',
-        LivenessStep.tooFar => 'Dekatkan wajah ke kamera.',
-        LivenessStep.blink => 'Kedipkan mata dua kali ($blinks/2).',
-        LivenessStep.done => 'Mengambil foto…',
-      },
+    final (fg, bg) = switch (status.tone) {
+      _Tone.ok => (c.primary, c.primaryContainer),
+      _Tone.alert => (c.alert, c.alertContainer),
+      _Tone.busy || _Tone.neutral => (c.inkMuted, c.canvas),
     };
-    final faceOk =
-        step == LivenessStep.blink ||
-        step == LivenessStep.done ||
-        phase.index >= _Phase.sending.index;
-    final blinkOk =
-        step == LivenessStep.done || phase.index >= _Phase.sending.index;
-    final sent = phase == _Phase.success;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Semantics(
-          liveRegion: true,
-          child: Text(text, style: context.text.titleMedium),
-        ),
-        const SizedBox(height: Sp.md),
-        Row(
-          children: [
-            _StepChip(label: 'Wajah', done: faceOk),
-            _StepLine(done: faceOk),
-            _StepChip(label: 'Kedip ${math.min(blinks, 2)}/2', done: blinkOk),
-            _StepLine(done: blinkOk),
-            _StepChip(label: 'Terkirim', done: sent),
-          ],
-        ),
-        if (phase == _Phase.scanning) ...[
-          const SizedBox(height: Sp.sm),
-          Text(
-            'Foto diambil otomatis setelah kedipan kedua.',
-            style: context.text.bodySmall?.copyWith(color: c.inkMuted),
+    return Container(
+      height: height,
+      padding: const EdgeInsets.fromLTRB(Sp.md, Sp.md, Sp.md, Sp.sm),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(Radii.card),
+        boxShadow: [
+          BoxShadow(
+            color: c.shadow,
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
-      ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AnimatedSwitcher(
+                  duration: Motion.of(context, Motion.standard),
+                  child: IconBadge(
+                    status.icon,
+                    key: ValueKey(status.icon),
+                    size: 40,
+                    iconSize: 22,
+                    background: bg,
+                    color: fg,
+                  ),
+                ),
+                const SizedBox(width: Sp.md),
+                Expanded(
+                  child: Semantics(
+                    liveRegion: true,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          status.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          status.detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.text.bodySmall?.copyWith(
+                            color: status.tone == _Tone.alert
+                                ? c.alert
+                                : c.inkMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (onRetry != null) ...[
+                  const SizedBox(width: Sp.sm),
+                  FilledButton(
+                    onPressed: onRetry,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(48, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                    child: const Text('Coba lagi'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              _StepDot(label: 'Wajah', done: steps.face),
+              _StepLine(done: steps.face),
+              _StepDot(
+                label: 'Kedip ${steps.blinks}/2',
+                done: steps.blinks >= 2,
+              ),
+              _StepLine(done: steps.blinks >= 2),
+              _StepDot(label: 'Terkirim', done: steps.sent),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _StepChip extends StatelessWidget {
-  const _StepChip({required this.label, required this.done});
+class _StepDot extends StatelessWidget {
+  const _StepDot({required this.label, required this.done});
   final String label;
   final bool done;
 
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
-    return AnimatedContainer(
-      duration: Motion.of(context, Motion.standard),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: done ? c.primaryContainer : c.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: done ? c.primaryContainer : c.line),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            done ? Icons.check_rounded : Icons.circle_outlined,
-            size: 14,
-            color: done ? c.primary : c.inkMuted,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: context.text.labelSmall?.copyWith(
-              color: done ? c.primary : c.inkMuted,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedContainer(
+          duration: Motion.of(context, Motion.standard),
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: done ? c.primaryBright : Colors.transparent,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: done ? c.primaryBright : c.line,
+              width: 2,
             ),
           ),
-        ],
-      ),
+          child: done
+              ? const Icon(Icons.check_rounded, size: 11, color: Colors.white)
+              : null,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: context.text.labelSmall?.copyWith(
+            color: done ? c.primary : c.inkMuted,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -942,10 +1181,246 @@ class _StepLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Container(
+    child: AnimatedContainer(
+      duration: Motion.of(context, Motion.standard),
       height: 2,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 8),
       color: done ? context.mx.primaryBright : context.mx.line,
     ),
   );
+}
+
+/// Panel bawah: titik terdekat + jarak realtime + arah/navigasi, alasan
+/// (pulang lebih awal), lalu daftar pemeriksaan.
+class _Sheet extends StatelessWidget {
+  const _Sheet({
+    required this.scroll,
+    required this.pre,
+    required this.early,
+    required this.reason,
+    required this.onRecenter,
+    required this.onAction,
+  });
+
+  final ScrollController scroll;
+  final AttendancePreflight pre;
+  final bool early;
+  final String? reason;
+  final VoidCallback onRecenter;
+  final ValueChanged<CheckId> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    final items = pre.items();
+    final done = items
+        .where((i) => i.state == CheckState.ok || i.state == CheckState.warn)
+        .length;
+    return Container(
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(Radii.hero),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: c.shadow,
+            blurRadius: 24,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: ListView(
+        controller: scroll,
+        padding: EdgeInsets.fromLTRB(
+          Sp.gutter,
+          0,
+          Sp.gutter,
+          Sp.lg + MediaQuery.paddingOf(context).bottom,
+        ),
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: Sp.md),
+              decoration: BoxDecoration(
+                color: c.line,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          _LocationRow(pre: pre, early: early, onRecenter: onRecenter),
+          if (early && reason != null) ...[
+            const SizedBox(height: Sp.md),
+            Container(
+              padding: const EdgeInsets.all(Sp.md),
+              decoration: BoxDecoration(
+                color: c.pendingContainer,
+                borderRadius: BorderRadius.circular(Radii.control),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.notes_rounded, size: 20, color: c.pending),
+                  const SizedBox(width: Sp.sm),
+                  Expanded(
+                    child: Text(
+                      'Alasan: $reason',
+                      style: context.text.bodyMedium?.copyWith(color: c.ink),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: Sp.lg),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Pemeriksaan kesiapan',
+                  style: context.text.titleSmall,
+                ),
+              ),
+              Text(
+                '$done/${items.length} siap',
+                style: context.text.labelMedium?.copyWith(
+                  color: done == items.length ? c.primary : c.inkMuted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Sp.xs),
+          PreflightChecklist(items: items, onAction: onAction),
+          const SizedBox(height: Sp.sm),
+          Text(
+            'Peta © kontributor OpenStreetMap',
+            style: context.text.labelSmall?.copyWith(color: c.inkMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationRow extends StatelessWidget {
+  const _LocationRow({
+    required this.pre,
+    required this.early,
+    required this.onRecenter,
+  });
+
+  final AttendancePreflight pre;
+  final bool early;
+  final VoidCallback onRecenter;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    final p = pre.position;
+    final n = pre.nearest;
+    final free = early || pre.locationFree;
+
+    late final Widget badge;
+    late final String title;
+    late final String detail;
+    Widget? action;
+
+    if (p == null) {
+      badge = SizedBox(
+        width: 44,
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.all(11),
+          child: CircularProgressIndicator(strokeWidth: 2.5, color: c.primary),
+        ),
+      );
+      title = 'Mencari posisi Anda…';
+      detail = 'Pastikan GPS aktif. Di dalam gedung bisa lebih lama.';
+    } else if (free) {
+      badge = const IconBadge(Icons.where_to_vote_rounded, size: 44);
+      title = n == null ? 'Lokasi dicatat' : 'Dekat ${n.name}';
+      detail =
+          '${n == null ? '' : '${meters(n.distance ?? 0)} dari titik · '}akurasi ±${p.accuracy.round()} m';
+    } else if (n == null) {
+      badge = SizedBox(
+        width: 44,
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.all(11),
+          child: CircularProgressIndicator(strokeWidth: 2.5, color: c.primary),
+        ),
+      );
+      title = 'Mencari titik absen terdekat…';
+      detail = 'Akurasi ±${p.accuracy.round()} m';
+    } else if (n.inRange) {
+      badge = const IconBadge(Icons.where_to_vote_rounded, size: 44);
+      title = n.name;
+      detail =
+          '${meters(n.distance ?? 0)} dari titik · di dalam radius ${n.radiusMeters} m';
+    } else {
+      final dir = pre.directionToNearest();
+      badge = Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: c.alertContainer,
+          shape: BoxShape.circle,
+        ),
+        // Panah penunjuk arah ke titik terdekat (utara = atas, sama seperti peta).
+        child: AnimatedRotation(
+          turns: (pre.bearingToNearest() ?? 0) / 360,
+          duration: Motion.of(context, Motion.standard),
+          child: Icon(
+            Icons.navigation_rounded,
+            color: c.alert,
+            semanticLabel: 'Arah ${dir ?? ''}',
+          ),
+        ),
+      );
+      title = 'Menuju ${n.name}';
+      detail =
+          '${meters(n.distance ?? 0)}${dir == null ? '' : ' ke arah $dir'} · masuk radius ${n.radiusMeters} m';
+      action = FilledButton(
+        onPressed: () => openNavigation(context, n),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        child: const Text('Navigasi'),
+      );
+    }
+
+    return Row(
+      children: [
+        badge,
+        const SizedBox(width: Sp.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.titleSmall,
+              ),
+              Text(
+                detail,
+                style: context.text.bodySmall?.copyWith(color: c.inkMuted),
+              ),
+            ],
+          ),
+        ),
+        if (action != null) ...[const SizedBox(width: Sp.sm), action],
+        if (p != null)
+          IconButton(
+            onPressed: onRecenter,
+            tooltip: 'Pusatkan peta',
+            icon: Icon(Icons.my_location_rounded, color: c.primary),
+          ),
+      ],
+    );
+  }
 }

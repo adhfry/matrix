@@ -9,6 +9,8 @@ import '../../../core/format/fmt.dart';
 import '../../../core/widgets/mx.dart';
 import '../data/scanner_repository.dart';
 import '../logic/ktp_image.dart';
+import '../logic/ktp_quality.dart';
+import 'ktp_quality_sheet.dart';
 import 'scan_camera_screen.dart';
 import 'scan_history_screen.dart';
 import 'scan_review_screen.dart';
@@ -21,9 +23,19 @@ class ScanHomeScreen extends ConsumerWidget {
     final x = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (x == null || !context.mounted) return;
     final file = await prepareKtpPhoto(File(x.path), cropToFrame: false);
+    final quality = await assessKtp(file);
     if (!context.mounted) return;
+    final go = await confirmKtpQuality(
+      context,
+      file,
+      quality,
+      retakeLabel: 'Pilih foto lain',
+    );
+    if (!go || !context.mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => ScanReviewScreen(photo: file)),
+      MaterialPageRoute<void>(
+        builder: (_) => ScanReviewScreen(photo: file, quality: quality),
+      ),
     );
   }
 
