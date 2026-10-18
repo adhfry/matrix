@@ -11,6 +11,7 @@ import '../data/scanner_repository.dart';
 import '../logic/ktp_image.dart';
 import '../logic/ktp_quality.dart';
 import 'ktp_quality_sheet.dart';
+import 'ocr_model_settings.dart';
 import 'scan_camera_screen.dart';
 import 'scan_history_screen.dart';
 import 'scan_review_screen.dart';
@@ -149,6 +150,8 @@ class ScanHomeScreen extends ConsumerWidget {
                     ),
                   ),
           ),
+          const SizedBox(height: Sp.xl),
+          const OcrModelSettings(),
         ],
       ),
     );

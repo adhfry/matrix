@@ -45,6 +45,7 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
   bool _reading = false;
   bool _readingAi = false;
   _Source _source = _Source.none;
+  String? _aiModel;
   double _upload = 0;
   String? _ocrError;
   List<KtpCheck> _checks = const [];
@@ -125,10 +126,13 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
       _upload = 0;
     });
     try {
+      // Model dari "Pengaturan lanjutan" (null = bawaan server).
+      final model = await ref.read(ocrModelChoiceProvider.future);
       final r = await ref
           .read(scannerRepositoryProvider)
           .ocr(
             widget.photo!,
+            model: model,
             onSendProgress: (s, t) {
               if (t > 0 && mounted) setState(() => _upload = s / t);
             },
@@ -140,6 +144,7 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
         _checks = r.checks;
         _existing = r.existing;
         _source = _Source.ai;
+        _aiModel = r.model;
       });
     } on ApiException catch (e) {
       // Hasil perangkat tetap dipakai; AI gagal bukan jalan buntu.
@@ -579,7 +584,7 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
                       child: Text(
                         _source == _Source.device
                             ? 'Dibaca di perangkat'
-                            : 'Dibaca dengan bantuan AI',
+                            : 'Dibaca dengan bantuan AI${_aiModel == null ? '' : ' · $_aiModel'}',
                         style: context.text.bodySmall?.copyWith(
                           color: c.inkMuted,
                         ),

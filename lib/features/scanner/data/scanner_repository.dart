@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/format/fmt.dart';
+import '../../../core/storage/secure_store.dart';
 
 /// Kolom pasien hasil OCR, memakai nama kolom tabel `patients` SiLAKES.
 class KtpFields {
@@ -74,10 +75,55 @@ class ExistingPatient {
 }
 
 class OcrResult {
-  const OcrResult({required this.fields, required this.checks, this.existing});
+  const OcrResult({
+    required this.fields,
+    required this.checks,
+    this.existing,
+    this.model,
+  });
   final KtpFields fields;
   final List<KtpCheck> checks;
   final ExistingPatient? existing;
+
+  /// Model AI yang akhirnya membaca (bisa cadangan bila pilihan gagal).
+  final String? model;
+}
+
+class OcrModel {
+  const OcrModel({
+    required this.name,
+    required this.displayName,
+    this.description,
+  });
+  final String name;
+  final String displayName;
+  final String? description;
+
+  factory OcrModel.fromJson(Map<String, dynamic> j) => OcrModel(
+    name: J.s(j['name']) ?? '',
+    displayName: J.s(j['display_name']) ?? '',
+    description: J.s(j['description']),
+  );
+}
+
+/// Model AI yang tersedia di server SiLAKES untuk membaca KTP.
+class OcrModels {
+  const OcrModels({
+    required this.defaultModel,
+    required this.fromGemini,
+    required this.models,
+  });
+  final String defaultModel;
+
+  /// False = daftar Gemini gagal diambil; hanya model bawaan.
+  final bool fromGemini;
+  final List<OcrModel> models;
+
+  factory OcrModels.fromJson(Map<String, dynamic> j) => OcrModels(
+    defaultModel: J.s(j['default']) ?? '',
+    fromGemini: J.s(j['source']) == 'gemini',
+    models: J.l(j['models']).map(OcrModel.fromJson).toList(),
+  );
 }
 
 class SavedPatient {
@@ -111,9 +157,18 @@ class ScannerRepository {
   final ApiClient _api;
   static const _p = ApiClient.prefix;
 
-  Future<OcrResult> ocr(File image, {ProgressCallback? onSendProgress}) async {
+  Future<OcrModels> models() async =>
+      OcrModels.fromJson(J.m(await _api.get('$_p/scanner/models')));
+
+  /// [model] null = model bawaan server.
+  Future<OcrResult> ocr(
+    File image, {
+    String? model,
+    ProgressCallback? onSendProgress,
+  }) async {
     final form = FormData.fromMap({
       'image': await MultipartFile.fromFile(image.path, filename: 'ktp.jpg'),
+      'model': ?model,
     });
     final d = J.m(
       await _api.post(
@@ -128,6 +183,7 @@ class ScannerRepository {
       existing: d['existing'] is Map
           ? ExistingPatient.fromJson(J.m(d['existing']))
           : null,
+      model: J.s(d['model']),
     );
   }
 
@@ -165,4 +221,23 @@ final scannerRepositoryProvider = Provider<ScannerRepository>(
 
 final myScannedPatientsProvider = FutureProvider.autoDispose(
   (ref) => ref.watch(scannerRepositoryProvider).mine(),
+);
+
+final ocrModelsProvider = FutureProvider.autoDispose<OcrModels>(
+  (ref) => ref.watch(scannerRepositoryProvider).models(),
+);
+
+/// Model AI pilihan pegawai, tersimpan di HP (null = bawaan server).
+class OcrModelChoice extends AsyncNotifier<String?> {
+  @override
+  Future<String?> build() => ref.read(secureStoreProvider).ocrModel();
+
+  Future<void> select(String? model) async {
+    await ref.read(secureStoreProvider).setOcrModel(model);
+    state = AsyncData(model);
+  }
+}
+
+final ocrModelChoiceProvider = AsyncNotifierProvider<OcrModelChoice, String?>(
+  OcrModelChoice.new,
 );

@@ -70,6 +70,13 @@ class SecureStore {
   Future<bool> ttsEnabled() async => await _read(_ttsEnabled) != 'false';
   Future<void> setTtsEnabled(bool v) => _s.write(key: _ttsEnabled, value: '$v');
 
+  /// Model AI pilihan untuk membaca KTP (Pengaturan lanjutan Pasien KTP);
+  /// null = bawaan server. Sengaja tidak dihapus saat keluar akun.
+  Future<String?> ocrModel() => _read('ocr_model');
+  Future<void> setOcrModel(String? v) => v == null
+      ? _s.delete(key: 'ocr_model')
+      : _s.write(key: 'ocr_model', value: v);
+
   /// Keluar akun: token & profil dihapus. PIN ikut dihapus karena terikat akun,
   /// status aktivasi perangkat & username terakhir dipertahankan.
   Future<void> clearSession() async {
