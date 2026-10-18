@@ -124,4 +124,85 @@ void main() {
     expect(r.checks.first.field, 'nik');
     expect(r.checks.first.isError, isTrue);
   });
+
+  test('NIK tidak cocok provinsi di kepala kartu -> tidak yakin', () {
+    final r = parseKtp(
+      card([
+        ('PROVINSI JAWA TIMUR', null),
+        ('NIK', '3629014512900003'),
+        ('Nama', 'SITI AMINAH'),
+        ('Tempat/Tgl Lahir', 'SUMENEP, 05-12-1990'),
+        ('Jenis Kelamin', 'PEREMPUAN'),
+        ('Alamat', 'JL. MAWAR'),
+        ('RT/RW', '001/002'),
+        ('Kel/Desa', 'BANGSELOK'),
+        ('Kecamatan', 'KOTA SUMENEP'),
+        ('Agama', 'ISLAM'),
+        ('Status Perkawinan', 'KAWIN'),
+        ('Pekerjaan', 'WIRASWASTA'),
+      ]),
+      now: _now,
+    );
+    expect(r.confident, isFalse);
+    expect(
+      r.checks.where((c) => c.field == 'nik').single.message,
+      contains('provinsi'),
+    );
+  });
+
+  test('tanggal lahir tercetak bertentangan dengan NIK -> tidak yakin', () {
+    final r = parseKtp(
+      card([
+        ('NIK', '3529014512900003'),
+        ('Nama', 'SITI AMINAH'),
+        ('Tempat/Tgl Lahir', 'SUMENEP, 06-12-1990'),
+      ]),
+      now: _now,
+    );
+    expect(r.confident, isFalse);
+    expect(r.checks.any((c) => c.field == 'tgl_lahir'), isTrue);
+  });
+
+  test('baris ML Kit berkeyakinan rendah pada NIK -> ragu, tidak yakin', () {
+    final lines = card([('NIK', '3529014512900003'), ('Nama', 'SITI AMINAH')]);
+    lines[1] = OcrLine(
+      lines[1].text,
+      lines[1].left,
+      lines[1].top,
+      lines[1].right,
+      lines[1].bottom,
+      confidence: 0.3,
+    );
+    final r = parseKtp(lines, now: _now);
+    expect(r.unsure, contains('nik'));
+    expect(r.confident, isFalse);
+  });
+
+  test('salah baca dibetulkan dengan data acuan KTP', () {
+    final r = parseKtp(
+      card([
+        ('PROVINSI JAWA TIMUR', null),
+        ('KABUPATEN SUMENEP', null),
+        ('NIK', '3529014512900003'),
+        ('Nama', 'SITI AMINAH'),
+        ('TempatTg Lahir', 'UMENEP, 05-12-1990'),
+        ('Alamat', 'A JL TRUNOJOYO NO 12'),
+        ('Kecamatan', 'N KOTA SUMENEP'),
+        ('Pekerjaan', 'PELAJARIMAHASISWA'),
+      ], splitBlocks: false),
+      now: _now,
+    );
+    expect(r.fields['tempat_lahir'], 'SUMENEP');
+    expect(r.fields['alamat'], 'JL. TRUNOJOYO NO. 12');
+    expect(r.fields['kecamatan'], 'KOTA SUMENEP');
+    expect(r.fields['pekerjaan'], 'PELAJAR/MAHASISWA');
+  });
+
+  test('label pendek tidak memakan huruf pertama nilai', () {
+    final r = parseKtp(
+      card([('Tempat/Tg Lahir', 'SUMENEP, 05-12-1990')], splitBlocks: false),
+      now: _now,
+    );
+    expect(r.fields['tempat_lahir'], 'SUMENEP');
+  });
 }

@@ -10,7 +10,11 @@ class KtpQuality {
     required this.brightness,
     required this.glare,
     required this.sharpness,
+    this.width = 1600,
   });
+
+  /// Lebar foto (px) setelah dipotong ke kartu.
+  final int width;
 
   /// Rata-rata luminans 0-255.
   final double brightness;
@@ -26,10 +30,14 @@ class KtpQuality {
   static const glareAbove = 0.06;
   static const blurBelow = 80.0;
 
+  /// Kartu selebar ini atau kurang = difoto terlalu jauh; huruf terlalu kecil.
+  static const smallBelow = 900;
+
   bool get tooDark => brightness < darkBelow;
   bool get tooBright => brightness > brightAbove || glare > glareAbove;
   bool get blurry => sharpness < blurBelow;
-  bool get ok => !tooDark && !tooBright && !blurry;
+  bool get tooSmall => width < smallBelow;
+  bool get ok => !tooDark && !tooBright && !blurry && !tooSmall;
 
   /// Saran perbaikan untuk petugas, satu kalimat per masalah.
   List<String> get advice => [
@@ -39,6 +47,8 @@ class KtpQuality {
       'Ada silau atau pantulan di kartu. Miringkan kartu sedikit atau matikan lampu kilat.',
     if (blurry)
       'Foto buram. Tahan HP diam sekitar sejengkal dari kartu, ketuk layar untuk fokus.',
+    if (tooSmall)
+      'Kartu terlalu kecil di foto. Dekatkan kamera sampai kartu memenuhi bingkai.',
   ];
 }
 
@@ -83,14 +93,19 @@ KtpQuality measureKtp(img.Image src) {
     brightness: sum / l.length,
     glare: bright / l.length,
     sharpness: n > 1 ? m2 / (n - 1) : 0,
+    width: src.width,
   );
 }
 
 /// Varian gambar untuk OCR berlapis: [0] asli, [1] kontras & gamma diratakan
-/// + dipertajam (gelap/terang/pudar), [2] bila buram: diperbesar + dipertajam
-/// kuat. Disimpan di folder yang sama dengan foto.
+/// + dipertajam (gelap/terang/pudar), [2] bila buram atau kecil: diperbesar
+/// (2x untuk foto kecil) + dipertajam kuat. Disimpan di folder foto.
 Future<List<File>> ktpOcrVariants(File photo, KtpQuality q) async {
-  final bytes = await compute(_variants, (await photo.readAsBytes(), q.blurry));
+  final bytes = await compute(_variants, (
+    await photo.readAsBytes(),
+    q.blurry || q.tooSmall,
+    q.tooSmall ? 2.0 : 1.5,
+  ));
   final out = <File>[photo];
   final stamp = DateTime.now().millisecondsSinceEpoch;
   for (var i = 0; i < bytes.length; i++) {
@@ -101,15 +116,15 @@ Future<List<File>> ktpOcrVariants(File photo, KtpQuality q) async {
   return out;
 }
 
-List<Uint8List> _variants((Uint8List, bool) args) {
-  final (data, blurry) = args;
+List<Uint8List> _variants((Uint8List, bool, double) args) {
+  final (data, upscale, scale) = args;
   final src = img.decodeImage(data);
   if (src == null) return const [];
   return [
     Uint8List.fromList(img.encodeJpg(enhanceKtp(src), quality: 90)),
-    if (blurry)
+    if (upscale)
       Uint8List.fromList(
-        img.encodeJpg(enhanceKtp(src, scale: 1.5, sharpen: 1.6), quality: 90),
+        img.encodeJpg(enhanceKtp(src, scale: scale, sharpen: 1.6), quality: 90),
       ),
   ];
 }

@@ -2,16 +2,26 @@ import 'dart:math' as math;
 
 import '../data/scanner_repository.dart';
 import 'ktp_image.dart';
+import 'ktp_reference.dart';
 
-/// Satu baris teks hasil OCR beserta kotaknya (piksel gambar).
+/// Satu baris teks hasil OCR beserta kotaknya (piksel gambar) dan
+/// keyakinan pengenal (0-1; 1 bila tidak tersedia).
 class OcrLine {
-  const OcrLine(this.text, this.left, this.top, this.right, this.bottom);
+  const OcrLine(
+    this.text,
+    this.left,
+    this.top,
+    this.right,
+    this.bottom, {
+    this.confidence = 1,
+  });
 
   final String text;
   final double left;
   final double top;
   final double right;
   final double bottom;
+  final double confidence;
 
   double get cy => (top + bottom) / 2;
   double get height => bottom - top;
@@ -24,15 +34,25 @@ class KtpParse {
     required this.checks,
     required this.confident,
     this.nikDigits = '',
+    this.province,
+    this.unsure = const {},
   });
 
   final KtpFields fields;
 
   /// Digit yang terbaca di baris NIK (untuk pesan "terbaca N digit").
   final String nikDigits;
+
+  /// Kepala kartu ("JAWA TIMUR"), untuk cek 2 digit awal NIK.
+  final String? province;
+
+  /// Kolom yang barisnya dibaca ML Kit dengan keyakinan rendah.
+  final Set<String> unsure;
   final List<KtpCheck> checks;
 
-  /// NIK valid, nama terbaca, dan paling banyak 2 kolom kosong. Bila false,
+  /// NIK valid & cocok dengan provinsi/tanggal lahir/jenis kelamin di kartu,
+  /// NIK & nama terbaca jelas, paling banyak 2 kolom kosong & 2 kolom ragu.
+  /// Bila false,
   /// layar review meminta bantuan AI server.
   final bool confident;
 }
@@ -55,7 +75,7 @@ enum _L {
   kabupaten,
 }
 
-/// Label KTP tanpa spasi/tanda baca; dicoba berurutan (yang panjang dulu).
+/// Label KTP tanpa spasi/tanda baca.
 const _labels = <_L, List<String>>{
   _L.nik: ['NIK'],
   _L.nama: ['NAMA'],
@@ -74,6 +94,20 @@ const _labels = <_L, List<String>>{
   _L.kabupaten: ['KABUPATEN', 'KOTA'],
 };
 
+const _fieldOf = <_L, String>{
+  _L.nik: 'nik',
+  _L.nama: 'name',
+  _L.ttl: 'tempat_lahir',
+  _L.jk: 'gender',
+  _L.alamat: 'alamat',
+  _L.rtrw: 'rt_rw',
+  _L.keldesa: 'kel_desa',
+  _L.kecamatan: 'kecamatan',
+  _L.agama: 'agama',
+  _L.status: 'status_perkawinan',
+  _L.pekerjaan: 'pekerjaan',
+};
+
 const _required = {
   'nik': 'NIK',
   'name': 'Nama',
@@ -89,15 +123,20 @@ const _required = {
   'pekerjaan': 'Pekerjaan',
 };
 
+/// Baris dengan keyakinan ML Kit di bawah ini dianggap kurang jelas.
+const unsureBelow = 0.5;
+
 /// Urai baris OCR KTP menjadi kolom pasien. Baris dikelompokkan per tinggi
 /// (label & nilai sering terbaca sebagai blok terpisah), label dicocokkan
-/// longgar terhadap salah baca OCR, lalu NIK dipakai sebagai cek silang.
+/// longgar terhadap salah baca OCR, nilai dibetulkan dengan data acuan KTP,
+/// lalu NIK dicek silang dengan isi kartu.
 KtpParse parseKtp(List<OcrLine> lines, {DateTime? now}) {
   final rows = _groupRows(lines);
   final width = lines.isEmpty
       ? 1.0
       : lines.map((l) => l.right).reduce(math.max);
   final raw = <_L, String>{};
+  final conf = <_L, double>{};
   final f = <String, String?>{for (final k in KtpFields.keys) k: null};
 
   _L? last;
@@ -108,7 +147,10 @@ KtpParse parseKtp(List<OcrLine> lines, {DateTime? now}) {
     final hit = _matchLabel(text);
     if (hit != null) {
       final (label, value) = hit;
-      raw.putIfAbsent(label, () => value);
+      if (!raw.containsKey(label)) {
+        raw[label] = value;
+        conf[label] = row.confidence;
+      }
       last = label;
       lastLeft = row.left;
       continued = 0;
@@ -121,6 +163,7 @@ KtpParse parseKtp(List<OcrLine> lines, {DateTime? now}) {
         row.left > lastLeft + width * 0.12 &&
         RegExp(r'[A-Z]{2}').hasMatch(text)) {
       raw[last!] = '${raw[last] ?? ''} $text'.trim();
+      conf[last] = math.min(conf[last] ?? 1, row.confidence);
       continued++;
       continue;
     }
@@ -129,6 +172,7 @@ KtpParse parseKtp(List<OcrLine> lines, {DateTime? now}) {
       final d = _digits(text);
       if (d.length >= 16 && !RegExp(r'[A-Z]{3,}').hasMatch(text)) {
         raw[_L.nik] = text;
+        conf[_L.nik] = row.confidence;
       }
     }
   }
@@ -139,9 +183,21 @@ KtpParse parseKtp(List<OcrLine> lines, {DateTime? now}) {
 
   f['name'] = _clean(raw[_L.nama], r"[^A-Z .,'\-]");
 
+  // Kepala kartu: "PROVINSI JAWA TIMUR", "KABUPATEN SUMENEP" / "KOTA ...".
+  final province = _clean(raw[_L.provinsi], r'[^A-Z ]');
+  final regency = _clean(raw[_L.kabupaten], r'[^A-Z ]');
+
   if (raw[_L.ttl] case final v?) {
     final (place, date) = _splitPlaceDate(v, now ?? DateTime.now());
-    f['tempat_lahir'] = _clean(place, r"[^A-Z .\-]");
+    var p = _clean(place, r"[^A-Z .\-]");
+    // Tempat lahir sering sama dengan kabupaten di kepala kartu; bila mirip
+    // (beda 1-2 huruf), pakai ejaan kepala kartu yang lebih besar & jelas.
+    if (p != null && regency != null && p != regency) {
+      final a = p.replaceAll(' ', '');
+      final b = regency.replaceAll(' ', '');
+      if (_distance(a, b) <= math.max(1, b.length ~/ 4)) p = regency;
+    }
+    f['tempat_lahir'] = p;
     f['tgl_lahir'] = date;
   }
 
@@ -156,25 +212,36 @@ KtpParse parseKtp(List<OcrLine> lines, {DateTime? now}) {
   ).firstMatch(jk)?.group(1);
   if (goldar != null) f['golongan_darah'] = goldar == '0' ? 'O' : goldar;
 
-  f['alamat'] = _clean(raw[_L.alamat], r"[^A-Z0-9 .,/\-]");
+  f['alamat'] = _address(_clean(raw[_L.alamat], r"[^A-Z0-9 .,/\-]"));
   f['rt_rw'] = _rtRw(raw[_L.rtrw]);
-  f['kel_desa'] = _clean(raw[_L.keldesa], r"[^A-Z0-9 .\-]");
-  f['kecamatan'] = _clean(raw[_L.kecamatan], r"[^A-Z .\-]");
+  f['kel_desa'] = _dropStray(_clean(raw[_L.keldesa], r"[^A-Z0-9 .\-]"));
+  f['kecamatan'] = _dropStray(_clean(raw[_L.kecamatan], r"[^A-Z .\-]"));
   f['agama'] = _agama(raw[_L.agama]);
   f['status_perkawinan'] = _status(raw[_L.status]);
-  f['pekerjaan'] = _clean(raw[_L.pekerjaan], r"[^A-Z /.\-]");
+  f['pekerjaan'] = _occupation(_clean(raw[_L.pekerjaan], r"[^A-Z /.\-]"));
 
-  return finalizeKtp(f, nikDigits: nikDigits);
+  final unsure = {
+    for (final e in conf.entries)
+      if (e.value < unsureBelow && _fieldOf[e.key] != null) _fieldOf[e.key]!,
+  };
+  return finalizeKtp(
+    f,
+    nikDigits: nikDigits,
+    province: province,
+    unsure: unsure,
+  );
 }
 
-/// Mutu hasil untuk memilih varian terbaik: yakin > NIK valid > kolom terisi.
+/// Mutu hasil untuk memilih varian terbaik: yakin > NIK valid > kolom terisi
+/// > sedikit kolom ragu.
 int ktpScore(KtpParse p) =>
     (p.confident ? 100 : 0) +
     (p.checks.any((c) => c.field == 'nik' && c.isError) ? 0 : 20) +
-    p.fields.values.values.where((v) => v != null).length;
+    p.fields.values.values.where((v) => v != null).length * 2 -
+    p.unsure.length;
 
 /// Gabungkan hasil beberapa varian gambar: varian terbaik jadi dasar, kolom
-/// kosongnya diisi dari varian lain, lalu cek silang NIK dihitung ulang.
+/// kosongnya diisi dari varian lain, lalu cek silang dihitung ulang.
 KtpParse mergeKtp(List<KtpParse> parses) {
   if (parses.length == 1) return parses.single;
   final ranked = [...parses]..sort((a, b) => ktpScore(b) - ktpScore(a));
@@ -183,55 +250,82 @@ KtpParse mergeKtp(List<KtpParse> parses) {
   Map<String, String?> own(KtpParse p) => {
     for (final e in p.fields.values.entries)
       e.key:
-          p.checks.any((c) => c.field == e.key && !c.isError) &&
-              (e.key == 'tgl_lahir' || e.key == 'gender')
+          p.checks.any(
+            (c) => c.field == e.key && c.message.startsWith('Diambil'),
+          )
           ? null
           : e.value,
   };
   final f = own(ranked.first);
+  final unsure = {...ranked.first.unsure};
   for (final p in ranked.skip(1)) {
     for (final e in own(p).entries) {
-      if (f[e.key] == null && e.value != null) f[e.key] = e.value;
+      if (f[e.key] == null && e.value != null) {
+        f[e.key] = e.value;
+        if (p.unsure.contains(e.key)) unsure.add(e.key);
+      }
     }
   }
   final digits = ranked
       .map((p) => p.nikDigits)
       .reduce((a, b) => a.length >= b.length ? a : b);
-  return finalizeKtp(f, nikDigits: digits);
+  return finalizeKtp(
+    f,
+    nikDigits: digits,
+    province: ranked.map((p) => p.province).nonNulls.firstOrNull,
+    unsure: unsure,
+  );
 }
 
-/// Lengkapi dari NIK, tandai kolom kosong, dan nilai keyakinan.
-KtpParse finalizeKtp(Map<String, String?> fields, {String nikDigits = ''}) {
+/// Lengkapi dari NIK, cek silang NIK dengan isi kartu, tandai kolom kosong
+/// atau ragu, dan nilai keyakinan.
+KtpParse finalizeKtp(
+  Map<String, String?> fields, {
+  String nikDigits = '',
+  String? province,
+  Set<String> unsure = const {},
+}) {
   final f = Map<String, String?>.of(fields);
-  // Cek silang NIK: digit 7-12 = tanggal lahir (+40 untuk perempuan).
   final checks = <KtpCheck>[];
+  var conflict = false;
+  void warn(String field, String message) =>
+      checks.add(KtpCheck(field: field, isError: false, message: message));
+
+  // Digit 7-12 NIK = tanggal lahir (+40 untuk perempuan).
   final nik = f['nik'];
   final info = nik == null ? null : decodeNik(nik);
   if (info?.birth != null) {
     final b = info!.birth!;
-    final iso =
-        '${b.year}-${b.month.toString().padLeft(2, '0')}-${b.day.toString().padLeft(2, '0')}';
-    if (f['tgl_lahir'] == null) {
-      f['tgl_lahir'] = iso;
-      checks.add(
-        const KtpCheck(
-          field: 'tgl_lahir',
-          isError: false,
-          message: 'Diambil dari NIK. Cocokkan dengan KTP.',
-        ),
-      );
+    final printed = DateTime.tryParse(f['tgl_lahir'] ?? '');
+    if (printed == null) {
+      f['tgl_lahir'] =
+          '${b.year}-${b.month.toString().padLeft(2, '0')}-${b.day.toString().padLeft(2, '0')}';
+      warn('tgl_lahir', 'Diambil dari NIK. Cocokkan dengan KTP.');
+    } else if (printed.day != b.day ||
+        printed.month != b.month ||
+        printed.year % 100 != b.year % 100) {
+      conflict = true;
+      warn('tgl_lahir', 'Tidak cocok dengan NIK. Salah satu salah baca.');
     }
     if (f['gender'] == null) {
       f['gender'] = info.gender;
-      checks.add(
-        const KtpCheck(
-          field: 'gender',
-          isError: false,
-          message: 'Diambil dari NIK. Cocokkan dengan KTP.',
-        ),
-      );
+      warn('gender', 'Diambil dari NIK. Cocokkan dengan KTP.');
+    } else if (f['gender'] != info.gender) {
+      conflict = true;
+      warn('gender', 'Tidak cocok dengan kode di NIK.');
     }
   }
+
+  // 2 digit awal NIK = kode provinsi di kepala kartu.
+  final code = _provinceCode(province);
+  if (nik != null && code != null && !nik.startsWith(code)) {
+    conflict = true;
+    warn(
+      'nik',
+      'Dua digit awal NIK (${nik.substring(0, 2)}) tidak cocok dengan provinsi di kartu ($code). Periksa angkanya.',
+    );
+  }
+
   if (nik == null) {
     checks.add(
       KtpCheck(
@@ -266,12 +360,26 @@ KtpParse finalizeKtp(Map<String, String?> fields, {String nikDigits = ''}) {
       );
     }
   }
+  for (final k in unsure) {
+    if (f[k] != null && !checks.any((c) => c.field == k)) {
+      warn(k, 'Huruf kurang jelas di foto. Cocokkan dengan KTP.');
+    }
+  }
 
   return KtpParse(
     fields: KtpFields(f),
     checks: checks,
-    confident: info?.birth != null && f['name'] != null && missing <= 2,
+    confident:
+        info?.birth != null &&
+        !conflict &&
+        f['name'] != null &&
+        !unsure.contains('nik') &&
+        !unsure.contains('name') &&
+        unsure.length <= 2 &&
+        missing <= 2,
     nikDigits: nikDigits,
+    province: province,
+    unsure: unsure,
   );
 }
 
@@ -281,6 +389,10 @@ class _Row {
   double cy;
 
   double get left => lines.map((l) => l.left).reduce(math.min);
+
+  /// Keyakinan baris = yang terendah di antara potongannya.
+  double get confidence => lines.map((l) => l.confidence).reduce(math.min);
+
   String get text {
     final sorted = [...lines]..sort((a, b) => a.left.compareTo(b.left));
     return sorted
@@ -372,9 +484,19 @@ String _digits(String s) {
   for (final e in _labels.entries) {
     for (final label in e.value) {
       final tol = label.length <= 4 ? 0 : (label.length <= 8 ? 1 : 2);
-      for (final n in {label.length, label.length - 1, label.length + 1}) {
-        if (n <= 0 || n > ls.length) continue;
-        if (_distance(ls.substring(0, n), label) > tol) continue;
+      // Panjang awalan yang paling mirip label; seri -> panjang label. Tanpa
+      // ini huruf pertama nilai bisa ikut "dimakan" label (SUMENEP -> UMENEP).
+      int? n;
+      var best = tol + 1;
+      for (final k in [label.length, label.length - 1, label.length + 1]) {
+        if (k <= 0 || k > ls.length) continue;
+        final d = _distance(ls.substring(0, k), label);
+        if (d < best) {
+          best = d;
+          n = k;
+        }
+      }
+      if (n != null) {
         var cut = at[n - 1] + 1;
         // Nilai dimulai setelah titik dua bila ada di dekat label.
         final colon = text.indexOf(':', cut);
@@ -494,4 +616,61 @@ String? _status(String? v) {
   if (s.contains('MATI')) return 'CERAI MATI';
   if (s.contains('KAWIN')) return 'KAWIN';
   return null;
+}
+
+String? _provinceCode(String? province) {
+  if (province == null) return null;
+  final key = province.replaceAll(' ', '');
+  String? code;
+  var best = 1 << 30;
+  for (final e in ktpProvinceCodes.entries) {
+    final d = _distance(key, e.key);
+    if (d < best && d <= math.max(1, e.key.length ~/ 5)) {
+      best = d;
+      code = e.value;
+    }
+  }
+  return code;
+}
+
+/// Rapikan singkatan alamat yang titiknya sering hilang dibaca OCR.
+String? _address(String? v) {
+  var s = _dropStray(v);
+  if (s == null) return null;
+  // "JL." yang terbaca "J" menempel: JTRUNOJOYO -> JL. TRUNOJOYO.
+  s = s.replaceFirst(RegExp(r'^J(?=[^AEIOU\s.L][A-Z]{3})'), 'JL. ');
+  return s
+      .replaceAllMapped(
+        RegExp(r'\b(JL|GG|DS|DSN|KP|PERUM|BLK|NO)\.?\s*(?=[A-Z0-9])'),
+        (m) => '${m[1]}. ',
+      )
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+/// Buang huruf tunggal tanpa titik di awal (sisa tanda ":" atau tepi kartu,
+/// mis. "N KOTA SUMENEP"); inisial bertitik seperti "M. ALI" tetap.
+String? _dropStray(String? v) {
+  if (v == null) return null;
+  final s = v.replaceFirst(
+    RegExp(r'^[A-Z0-9](?![.A-Z0-9])\s+(?=[A-Z0-9]{2})'),
+    '',
+  );
+  return s.length < 2 ? null : s;
+}
+
+/// Cocokkan ke daftar pekerjaan KTP (abaikan spasi/garis miring yang hilang).
+String? _occupation(String? v) {
+  if (v == null) return null;
+  final key = v.replaceAll(RegExp(r'[^A-Z]'), '');
+  String? hit;
+  var best = 1 << 30;
+  for (final o in ktpOccupations) {
+    final d = _distance(key, o.replaceAll(RegExp(r'[^A-Z]'), ''));
+    if (d < best) {
+      best = d;
+      hit = o;
+    }
+  }
+  return best <= math.max(1, key.length ~/ 6) ? hit : v;
 }

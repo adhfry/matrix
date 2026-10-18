@@ -563,7 +563,8 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
                   tone: Tone.ok,
                   icon: Icons.check_rounded,
                 ),
-              if (!_reading && _source != _Source.none)
+              if (!_reading && _source != _Source.none) ...[
+                const SizedBox(height: Sp.sm),
                 Row(
                   children: [
                     Icon(
@@ -591,6 +592,7 @@ class _ScanReviewScreenState extends ConsumerState<ScanReviewScreen> {
                       ),
                   ],
                 ),
+              ],
               const SizedBox(height: Sp.lg),
             ],
             if (_existing != null) ...[

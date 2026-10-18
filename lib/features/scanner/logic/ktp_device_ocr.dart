@@ -9,13 +9,19 @@ import 'ktp_quality.dart';
 /// internet. Dibaca berlapis: foto asli dulu; bila belum lengkap, versi yang
 /// kontrasnya diratakan (gelap/silau/pudar) lalu versi dipertajam (buram).
 /// Hasil semua varian digabung per kolom.
-Future<KtpParse> readKtpOnDevice(File photo, {KtpQuality? quality}) async {
+///
+/// [layered] false = baca sekali saja (pembanding di benchmark).
+Future<KtpParse> readKtpOnDevice(
+  File photo, {
+  KtpQuality? quality,
+  bool layered = true,
+}) async {
   final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
   final parses = <KtpParse>[];
   final temp = <File>[];
   try {
     parses.add(await _read(recognizer, photo));
-    if (!_complete(parses.first)) {
+    if (layered && !_complete(parses.first)) {
       final q = quality ?? await assessKtp(photo);
       temp.addAll((await ktpOcrVariants(photo, q)).skip(1));
       for (final v in temp) {
@@ -45,6 +51,7 @@ Future<KtpParse> _read(TextRecognizer r, File f) async {
           l.boundingBox.top,
           l.boundingBox.right,
           l.boundingBox.bottom,
+          confidence: l.confidence ?? 1,
         ),
   ]);
 }
