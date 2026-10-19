@@ -95,6 +95,9 @@ class ApiClient {
     () => _dio.post<dynamic>(path, data: data, onSendProgress: onSendProgress),
   );
 
+  Future<dynamic> patch(String path, {Object? data}) =>
+      _send(() => _dio.patch<dynamic>(path, data: data));
+
   /// Seperti [post] tetapi ikut mengembalikan `message` server (mis. "Terlambat 4 menit").
   Future<({dynamic data, String? message})> postWithMessage(
     String path, {

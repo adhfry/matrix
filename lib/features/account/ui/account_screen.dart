@@ -13,6 +13,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../auth/session.dart';
 import '../../scanner/ui/scan_history_screen.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../nfc_tap/ui/nfc_tap_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notifications_screen.dart';
 import '../../identity/data/identity_repository.dart';
@@ -299,6 +300,24 @@ class AccountScreen extends ConsumerWidget {
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => const ScanHistoryScreen(),
+                                ),
+                              ),
+                            ),
+                            ListTile(
+                              leading: IconBadge(
+                                Icons.contactless_outlined,
+                                size: 36,
+                                background: context.hues.indigo.bg,
+                                color: context.hues.indigo.fg,
+                              ),
+                              title: const Text('HP sebagai alat tap'),
+                              subtitle: const Text(
+                                'Tempel HP ke alat absen seperti kartu',
+                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const NfcTapScreen(),
                                 ),
                               ),
                             ),

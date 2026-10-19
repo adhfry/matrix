@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- HP sebagai alat tap ke-2: jawab alat RC522 walau HP terkunci, dan saat
+     layar mati bila perangkat mengizinkan (Android 14+). -->
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/nfc_tap_service"
+    android:requireDeviceUnlock="false"
+    android:requireDeviceScreenOn="false">
+    <aid-group android:category="other" android:description="@string/nfc_tap_service">
+        <aid-filter android:name="F04D415452495801" />
+    </aid-group>
+</host-apdu-service>
