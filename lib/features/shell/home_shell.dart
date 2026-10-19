@@ -69,11 +69,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     });
   }
 
-  /// Pembaruan opsional: lembar besar sekali sehari per versi. APK lama yang
-  /// sudah terpasang dibersihkan dari cache.
+  /// Pembaruan opsional: unduh otomatis saat Wi-Fi + lembar besar sekali sehari
+  /// per versi. APK lama yang sudah terpasang dibersihkan dari cache.
   Future<void> _maybeOfferUpdate() async {
     final check = await ref.read(appUpdateProvider.future);
     if (check != null) unawaited(AppInstaller.cleanup(check.currentBuild));
+    unawaited(autoDownloadUpdate(ref));
     if (mounted) await maybePromptUpdate(context, ref);
   }
 

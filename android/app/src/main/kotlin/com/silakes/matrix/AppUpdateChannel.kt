@@ -21,18 +21,20 @@ class AppUpdateChannel(private val activity: Activity, messenger: BinaryMessenge
     init {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
-                "canInstall" -> result.success(
-                    Build.VERSION.SDK_INT < 26 || activity.packageManager.canRequestPackageInstalls(),
-                )
+                "canInstall" -> result.success(canInstall())
                 "openInstallSettings" -> {
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        activity.startActivity(
+                    // Android 8+: izin per aplikasi. Android 7.x: sakelar global
+                    // "Sumber tidak dikenal" di Pengaturan > Keamanan.
+                    activity.startActivity(
+                        if (Build.VERSION.SDK_INT >= 26) {
                             Intent(
                                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                 Uri.parse("package:${activity.packageName}"),
-                            ),
-                        )
-                    }
+                            )
+                        } else {
+                            Intent(Settings.ACTION_SECURITY_SETTINGS)
+                        },
+                    )
                     result.success(null)
                 }
                 "install" -> {
@@ -53,6 +55,14 @@ class AppUpdateChannel(private val activity: Activity, messenger: BinaryMessenge
             }
         }
     }
+
+    private fun canInstall(): Boolean =
+        if (Build.VERSION.SDK_INT >= 26) {
+            activity.packageManager.canRequestPackageInstalls()
+        } else {
+            @Suppress("DEPRECATION")
+            Settings.Secure.getInt(activity.contentResolver, Settings.Secure.INSTALL_NON_MARKET_APPS, 0) == 1
+        }
 
     fun dispose() = channel.setMethodCallHandler(null)
 }

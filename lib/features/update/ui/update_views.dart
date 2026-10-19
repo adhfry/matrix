@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -201,7 +202,11 @@ class UpdateActions extends ConsumerWidget {
       InstallStage.needsPermission => const _Hint(
         tone: Tone.pending,
         text:
-            'Izinkan MATRIX memasang pembaruan: aktifkan "Izinkan dari sumber ini", lalu kembali ke MATRIX. Pemasangan berlanjut otomatis.',
+            'Izinkan MATRIX memasang pembaruan: aktifkan "Izinkan dari sumber ini" (Android 8 ke atas) atau "Sumber tidak dikenal" (Android 7), lalu kembali ke MATRIX. Pemasangan berlanjut otomatis.',
+      ),
+      InstallStage.ready => const _Hint(
+        tone: Tone.ok,
+        text: 'Pembaruan sudah diunduh otomatis dan siap dipasang.',
       ),
       InstallStage.installing => const _Hint(
         tone: Tone.ok,
@@ -228,6 +233,7 @@ class UpdateActions extends ConsumerWidget {
         'Perbarui sekarang',
         () => installer.start(release),
       ),
+      InstallStage.ready => ('Pasang sekarang', () => installer.start(release)),
     };
 
     return Column(
@@ -443,9 +449,35 @@ class _UpToDateState extends ConsumerState<_UpToDate> {
 }
 
 /// Pembaruan wajib: menggantikan seluruh aplikasi sampai diperbarui.
-class UpdateGateScreen extends StatelessWidget {
-  const UpdateGateScreen({super.key, required this.release});
+class UpdateGateScreen extends ConsumerStatefulWidget {
+  const UpdateGateScreen({
+    super.key,
+    required this.release,
+    this.autoStart = true,
+  });
   final AppReleaseInfo release;
+
+  /// Langsung mulai unduh (lalu pemasang) begitu layar muncul.
+  final bool autoStart;
+
+  @override
+  ConsumerState<UpdateGateScreen> createState() => _UpdateGateScreenState();
+}
+
+class _UpdateGateScreenState extends ConsumerState<UpdateGateScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final installer = ref.read(appInstallerProvider.notifier);
+        final stage = ref.read(appInstallerProvider).stage;
+        if (stage == InstallStage.idle || stage == InstallStage.ready) {
+          installer.start(widget.release);
+        }
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -462,7 +494,9 @@ class UpdateGateScreen extends StatelessWidget {
                   Sp.gutter,
                   Sp.lg,
                 ),
-                children: [UpdateDetails(release: release, mandatory: true)],
+                children: [
+                  UpdateDetails(release: widget.release, mandatory: true),
+                ],
               ),
             ),
             Padding(
@@ -472,13 +506,28 @@ class UpdateGateScreen extends StatelessWidget {
                 Sp.gutter,
                 Sp.lg,
               ),
-              child: UpdateActions(release: release),
+              child: UpdateActions(release: widget.release),
             ),
           ],
         ),
       ),
     ),
   );
+}
+
+/// Pembaruan opsional diunduh otomatis di latar bila HP memakai Wi-Fi (tidak
+/// menghabiskan kuota data); tombol lalu menjadi "Pasang sekarang".
+Future<void> autoDownloadUpdate(WidgetRef ref) async {
+  final check = ref.read(appUpdateProvider).value;
+  final r = check?.latest;
+  if (check == null || !check.available || r == null) return;
+  try {
+    final net = await Connectivity().checkConnectivity();
+    if (net.contains(ConnectivityResult.wifi) ||
+        net.contains(ConnectivityResult.ethernet)) {
+      await ref.read(appInstallerProvider.notifier).prefetch(r);
+    }
+  } catch (_) {}
 }
 
 /// Tawarkan pembaruan opsional sekali sehari (per versi). "Nanti saja" =

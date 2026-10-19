@@ -503,6 +503,7 @@ class AccountScreen extends ConsumerWidget {
                                 // Tetap tersedia walau "Nanti saja" ditekan.
                                 final up = ref.watch(appUpdateProvider).value;
                                 final has = up?.available == true;
+                                final dl = ref.watch(appInstallerProvider);
                                 return ListTile(
                                   leading: IconBadge(
                                     Icons.system_update_rounded,
@@ -516,7 +517,11 @@ class AccountScreen extends ConsumerWidget {
                                   ),
                                   title: const Text('Pembaruan aplikasi'),
                                   subtitle: Text(
-                                    has
+                                    has && dl.stage == InstallStage.downloading
+                                        ? 'Mengunduh versi ${up!.latest?.versionName}… ${((dl.progress ?? 0) * 100).round()}%'
+                                        : has && dl.stage == InstallStage.ready
+                                        ? 'Versi ${up!.latest?.versionName} siap dipasang'
+                                        : has
                                         ? 'Versi ${up!.latest?.versionName} tersedia'
                                         : up == null
                                         ? 'Ketuk untuk memeriksa'

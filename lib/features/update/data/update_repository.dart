@@ -169,6 +169,9 @@ enum InstallStage {
   needsPermission,
   installing,
   failed,
+
+  /// Sudah diunduh & lolos cek SHA-256 (unduh otomatis), tinggal dipasang.
+  ready,
 }
 
 class InstallState {
@@ -218,7 +221,18 @@ class AppInstaller extends Notifier<InstallState> {
       await f.exists() &&
       (await sha256.bind(f.openRead()).first).toString() == sha.toLowerCase();
 
-  Future<void> start(AppReleaseInfo release) async {
+  /// Unduh lalu pasang (tombol "Perbarui sekarang", atau otomatis untuk
+  /// pembaruan wajib).
+  Future<void> start(AppReleaseInfo release) => _run(release, install: true);
+
+  /// Unduh otomatis di latar (pembaruan opsional, saat Wi-Fi) tanpa membuka
+  /// pemasang; tombol berganti menjadi "Pasang sekarang".
+  Future<void> prefetch(AppReleaseInfo release) async {
+    if (state.stage != InstallStage.idle) return;
+    await _run(release, install: false);
+  }
+
+  Future<void> _run(AppReleaseInfo release, {required bool install}) async {
     if (state.busy || release.downloadUrl == null) return;
     _pending = release;
     try {
@@ -242,7 +256,11 @@ class AppInstaller extends Notifier<InstallState> {
           throw const _InstallError('Berkas unduhan rusak. Coba unduh ulang.');
         }
       }
-      await _install(file);
+      if (install) {
+        await _install(file);
+      } else {
+        state = const InstallState(InstallStage.ready);
+      }
     } on _InstallError catch (e) {
       state = InstallState(InstallStage.failed, error: e.message);
     } on DioException catch (e) {
@@ -250,12 +268,18 @@ class AppInstaller extends Notifier<InstallState> {
         state = const InstallState(InstallStage.idle);
         return;
       }
-      state = const InstallState(
-        InstallStage.failed,
-        error: 'Unduhan terputus. Periksa koneksi internet, lalu coba lagi.',
-      );
+      // Unduhan latar yang gagal tidak perlu mengganggu; cukup ulang nanti.
+      state = install
+          ? const InstallState(
+              InstallStage.failed,
+              error:
+                  'Unduhan terputus. Periksa koneksi internet, lalu coba lagi.',
+            )
+          : const InstallState(InstallStage.idle);
     } catch (e) {
-      state = InstallState(InstallStage.failed, error: 'Pembaruan gagal: $e');
+      state = install
+          ? InstallState(InstallStage.failed, error: 'Pembaruan gagal: $e')
+          : const InstallState(InstallStage.idle);
     }
   }
 

@@ -71,7 +71,9 @@ void main() {
     'wajib: catatan rilis lengkap, tanpa "Nanti saja", tidak bisa kembali',
     (tester) async {
       _phone(tester);
-      await tester.pumpWidget(_app(UpdateGateScreen(release: _release)));
+      await tester.pumpWidget(
+        _app(UpdateGateScreen(release: _release, autoStart: false)),
+      );
       expect(find.text('Pembaruan wajib'), findsOneWidget);
       expect(find.text('MATRIX 2.1.0'), findsOneWidget);
       expect(find.text('BARU'), findsOneWidget);
@@ -167,5 +169,26 @@ void main() {
     expect(find.text('MATRIX sudah versi terbaru'), findsOneWidget);
     expect(find.text('Versi 2.1.0 (build 3).'), findsOneWidget);
     expect(find.text('Periksa pembaruan'), findsOneWidget);
+  });
+
+  testWidgets('sudah diunduh otomatis (Wi-Fi): tombol "Pasang sekarang"', (
+    tester,
+  ) async {
+    _phone(tester);
+    await tester.pumpWidget(
+      _app(
+        Scaffold(
+          body: UpdateActions(release: _release, onLater: () {}),
+        ),
+        overrides: [
+          appInstallerProvider.overrideWith(
+            () => _FakeInstaller(const InstallState(InstallStage.ready)),
+          ),
+        ],
+      ),
+    );
+    expect(find.textContaining('siap dipasang'), findsOneWidget);
+    expect(find.text('Pasang sekarang'), findsOneWidget);
+    expect(find.text('Nanti saja'), findsOneWidget);
   });
 }
