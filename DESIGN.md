@@ -164,3 +164,49 @@ Catatan antislop: batas palet R-29 (2-3 inti + 1 aksen) dilampaui atas permintaa
 pemilik. Diterima karena tiap warna terikat satu kategori data yang konsisten, sama
 luminansnya, dan shift selalu disertai ikon + huruf (P/S/M/L/I) sehingga tidak bergantung
 pada warna saja.
+
+## 13. Layar sebelum masuk: pengenalan & login (arahan pemilik 2026-10-19)
+
+Permintaan pemilik: branding MATRIX bukan "aplikasi absen dan jaspel" melainkan kepanjangannya
+(Manajemen Absensi Terintegrasi dan Remunerasi Insentif eXpert); ada pengenalan ("get started")
+tentang Labkesda Sumenep bernuansa hijau-merah, sambutan MATRIX v2, foto gedung Labkesda sebagai
+latar dengan transisi gradien transparan, kelas aplikasi manajemen enterprise.
+
+- **Pengenalan 3 halaman, sekali per HP** (`onboarded_v2`, tidak terhapus saat keluar akun):
+  sambutan MATRIX v2 -> tentang Labkesda (layanan & alamat dari data SiLAKES, tanpa klaim yang
+  tidak tercatat) -> apa yang bisa dilakukan pegawai. Bisa dilewati.
+- **Foto gedung** full-bleed, dikompres (lebar <= 1080 px, JPEG ~q72). Gradien dari transparan
+  (atas) ke hijau tua `#04291F` (bawah); di halaman isi gradien naik menutupi foto supaya teks
+  terbaca. Foto bergeser & membesar pelan mengikuti geseran (parallax); mati bila kurangi animasi.
+- **Merah logo `#CB213D` sebagai aksen identitas** hanya di layar sebelum masuk: lencana "v2" dan
+  garis pendek di atas label. Layar ini tidak menampilkan data/status, jadi tidak bertabrakan
+  dengan aturan §2 "merah = masalah" yang tetap berlaku di semua layar setelah masuk.
+  Tetap tanpa gradien hijau->merah.
+- Hero login: wordmark "MATRIX v2" + kepanjangan dengan huruf akronim ditebalkan + nama unit.
+
+## 14. Logo MATRIX v2 & splash (arahan pemilik 2026-10-19)
+
+Pilihan awal pemilik (monogram titik) diganti atas arahannya sendiri: "M seperti milik Gmail
+tapi sedikit dimodifikasi bentuknya dan warnanya disesuaikan palet MATRIX". Dibuat berbeda dari
+logo Gmail (merek dagang Google): bukan amplop, sudut & ujung membulat, proporsi persegi, dua pita
+(bukan empat bidang warna).
+
+- **Geometri:** dua pita tebal (lebar 0,19 sisi kotak, ujung & sudut bulat). Pita A: kaki kiri
+  naik lalu turun ke lembah V. Pita B: dari lembah naik lalu kaki kanan turun, menimpa pita A
+  dengan bayangan lipatan tipis. Satu sumber: `tool/gen_brand.dart` (PNG ikon) dan
+  `lib/core/widgets/matrix_mark.dart` (widget, tajam di semua ukuran).
+- **Warna:** pita A hijau tua `#046C4F` -> hijau MATRIX `#12AE78`; pita B emas `#F0A92A`
+  (palet §12) -> jingga -> merah logo `#CB213D`. Gradasi hijau-merah tidak dicampur di satu
+  bidang (menghindari cokelat keruh); pertemuan keduanya justru di lipatan V.
+- **Ikon:** latar putih; adaptive foreground 50% kanvas (zona aman); themed icon Android 13
+  memakai versi putih polos; ikon notifikasi = vektor titik yang sama.
+- **Splash:** splash native polos (warna kanvas), lalu Flutter menggoreskan pita hijau (0,85 dtk)
+  dan pita emas-merah (0,65 dtk), sinkron dengan suara "Ma-triks" ("Ma" jatuh di ujung goresan hijau,
+  "triks" bersama goresan merah). Logo memantul + getar halus, lalu wordmark "MATRIX v2" dan
+  kepanjangan naik. Total +-2,9 detik, sekali per buka aplikasi. "Kurangi animasi" -> logo penuh.
+- **Suara pembuka:** `assets/sounds/matrix_voice.ogg` (12 KB). Suara wanita Indonesia (Google TTS
+  id-ID, suara `idc` jaringan, nada dasar +-216 Hz), "Ma" nada sedang, "triks" dinaikkan 3,5 semitone
+  (rubberband, formant dipertahankan), EQ hangat + ruang tipis, loudness -16 LUFS. Diputar lewat aliran
+  suara sistem: ikut senyap di mode senyap/getar, tidak memotong musik. Bisa dimatikan di Akun.
+  Catatan: untuk rilis publik, idealnya diganti rekaman suara asli (mis. staf) atau TTS berlisensi;
+  cukup timpa berkasnya dengan durasi & titik suku kata yang sama.

@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ikon status bar notifikasi: siluet putih (Android mewarnainya sendiri). -->
+<!-- Ikon status bar notifikasi: M pita MATRIX v2 (siluet putih, Android
+     yang mewarnai). Geometri sama dengan tool/gen_brand.dart, kotak 2..22. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M4,19V5h2.6L12,12.2L17.4,5H20v14h-2.6V9.8L12,16.4L6.6,9.8V19z" />
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.8,19.2V5.6L12,13.6L19.2,5.6V19.2" />
 </vector>

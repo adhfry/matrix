@@ -31,9 +31,12 @@ class SessionNeedsLogin extends SessionState {
 }
 
 class SessionLocked extends SessionState {
-  const SessionLocked(this.user, {required this.biometric});
+  const SessionLocked(this.user, {required this.biometric, this.hasPin = true});
   final AppUser user;
   final bool biometric;
+
+  /// False = hanya biometrik (cadangan PIN/pola HP), tanpa PIN aplikasi.
+  final bool hasPin;
 }
 
 class SessionReady extends SessionState {
@@ -82,14 +85,20 @@ class SessionController extends Notifier<SessionState>
       state = SessionNeedsLogin(lastUsername: await _auth.lastUsername());
       return;
     }
-    if (await _pin.isSet()) {
-      state = SessionLocked(user, biometric: await _pin.biometricEnabled());
+    if (await _pin.hasLock()) {
+      state = await _locked(user);
     } else {
       // Tanpa PIN, sesi tidak diingat: wajib password tiap membuka aplikasi (perilaku v1).
       await _auth.logout();
       state = SessionNeedsLogin(lastUsername: await _auth.lastUsername());
     }
   }
+
+  Future<SessionLocked> _locked(AppUser user) async => SessionLocked(
+    user,
+    biometric: await _pin.biometricEnabled(),
+    hasPin: await _pin.isSet(),
+  );
 
   void loggedIn(AppUser user) => state = SessionReady(user, offerPin: true);
 
@@ -156,13 +165,8 @@ class SessionController extends Notifier<SessionState>
       _pausedAt = null;
       final current = state;
       if (current is SessionReady && away > relockAfter) {
-        _pin.isSet().then((has) async {
-          if (has && state is SessionReady) {
-            state = SessionLocked(
-              current.user,
-              biometric: await _pin.biometricEnabled(),
-            );
-          }
+        _pin.hasLock().then((has) async {
+          if (has && state is SessionReady) state = await _locked(current.user);
         });
       }
     }

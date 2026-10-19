@@ -8,6 +8,7 @@ import '../../core/api/api_client.dart';
 import '../../core/push/push_service.dart';
 import '../../core/storage/secure_store.dart';
 import '../../core/widgets/finance.dart';
+import '../../core/widgets/mx.dart';
 import '../identity/data/identity_repository.dart';
 import '../identity/ui/identity_screen.dart';
 import '../account/ui/account_screen.dart';
@@ -16,6 +17,7 @@ import '../auth/session.dart';
 import '../home/ui/home_screen.dart';
 import '../kinerja/ui/kinerja_screen.dart';
 import '../schedule/ui/schedule_screen.dart';
+import '../security/pin_service.dart';
 import '../security/ui/pin_screen.dart';
 
 /// Tab aktif bisa diubah dari layar lain (mis. kartu kinerja di Beranda).
@@ -212,6 +214,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final s = ref.read(sessionProvider);
     if (s is! SessionReady || !s.offerPin || !mounted) return;
     ref.read(sessionProvider.notifier).pinOfferHandled();
+    final pin = ref.read(pinServiceProvider);
+    if (await pin.hasLock() || !mounted) return;
+    if (await pin.biometricAvailable()) {
+      await _offerBiometric(pin);
+      return;
+    }
+    if (!mounted) return;
     final create = await showModalBottomSheet<bool>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -254,6 +263,96 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       ),
     );
     if (create == true && mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<bool>(
+          builder: (_) => PinScreen.create(user: ref.read(currentUserProvider)),
+          fullscreenDialog: true,
+        ),
+      );
+    }
+  }
+
+  /// Satu ketuk: sidik jari/wajah membuka MATRIX, cadangannya PIN/pola HP.
+  /// PIN aplikasi hanya pilihan, bukan syarat.
+  Future<void> _offerBiometric(PinService pin) async {
+    final name = await pin.biometricName();
+    if (!mounted) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Sp.xl, 0, Sp.xl, Sp.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconBadge(
+                name == 'wajah'
+                    ? Icons.face_rounded
+                    : Icons.fingerprint_rounded,
+                size: 52,
+              ),
+              const SizedBox(height: Sp.lg),
+              Text(
+                'Masuk berikutnya dengan $name',
+                style: ctx.text.titleMedium,
+              ),
+              const SizedBox(height: Sp.sm),
+              Text(
+                'Setelah ditinggal 5 menit, MATRIX terkunci dan meminta $name lagi. Kalau sensor tidak membaca, pakai PIN atau pola kunci HP.',
+                style: ctx.text.bodyMedium?.copyWith(color: ctx.mx.inkMuted),
+              ),
+              const SizedBox(height: Sp.xl),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(ctx, 'bio'),
+                  icon: Icon(
+                    name == 'wajah'
+                        ? Icons.face_rounded
+                        : Icons.fingerprint_rounded,
+                  ),
+                  label: Text('Aktifkan $name'),
+                ),
+              ),
+              const SizedBox(height: Sp.sm),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx, 'pin'),
+                      child: const Text('Pakai PIN aplikasi'),
+                    ),
+                  ),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Nanti saja'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'bio') {
+      if (await pin.authenticate()) {
+        await pin.setBiometricEnabled(true);
+        HapticFeedback.mediumImpact();
+        if (mounted) {
+          showMxSnack(context, 'Buka dengan $name aktif.', tone: Tone.ok);
+        }
+      } else if (mounted) {
+        showMxSnack(
+          context,
+          'Belum aktif. Bisa diaktifkan kapan saja di Akun > Keamanan.',
+          tone: Tone.pending,
+        );
+      }
+    } else if (choice == 'pin') {
       await Navigator.of(context).push(
         MaterialPageRoute<bool>(
           builder: (_) => PinScreen.create(user: ref.read(currentUserProvider)),

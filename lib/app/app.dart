@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/storage/secure_store.dart';
 import '../features/auth/session.dart';
+import '../core/widgets/matrix_mark.dart';
+import '../features/onboarding/onboarding_screen.dart';
+import '../features/splash/matrix_splash.dart';
 import '../features/auth/ui/activation_screen.dart';
 import '../features/auth/ui/login_screen.dart';
 import '../features/security/ui/pin_screen.dart';
@@ -81,17 +84,21 @@ class _SessionRoot extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(sessionProvider);
+    final onboarded = ref.watch(onboardedProvider).value;
+    final splashDone = ref.watch(splashDoneProvider);
+    final firstRun = s is SessionNeedsActivation || s is SessionNeedsLogin;
     final Widget screen = switch (s) {
+      _ when !splashDone => const MatrixSplash(),
+      _ when firstRun && onboarded == null => const _BootScreen(),
+      _ when firstRun && onboarded == false => const OnboardingScreen(),
       SessionBooting() => const _BootScreen(),
       SessionNeedsActivation() => const ActivationScreen(),
       SessionNeedsLogin(:final lastUsername, :final notice) => LoginScreen(
         lastUsername: lastUsername,
         notice: notice,
       ),
-      SessionLocked(:final user, :final biometric) => PinScreen.unlock(
-        user: user,
-        biometric: biometric,
-      ),
+      SessionLocked(:final user, :final biometric, :final hasPin) =>
+        PinScreen.unlock(user: user, biometric: biometric, hasPin: hasPin),
       SessionReady() => const HomeShell(),
     };
     return PageTransitionSwitcher(
@@ -102,7 +109,12 @@ class _SessionRoot extends ConsumerWidget {
         fillColor: context.mx.canvas,
         child: child,
       ),
-      child: KeyedSubtree(key: ValueKey(s.runtimeType), child: screen),
+      // Splash punya key tetap: status sesi yang berganti di belakangnya
+      // (Booting -> Locked) tidak boleh membuat ulang animasi & bunyinya.
+      child: KeyedSubtree(
+        key: ValueKey(splashDone ? s.runtimeType : MatrixSplash),
+        child: screen,
+      ),
     );
   }
 }
@@ -116,11 +128,7 @@ class _BootScreen extends StatelessWidget {
       body: Center(
         child: Semantics(
           label: 'Memuat MATRIX',
-          child: Image.asset(
-            'assets/images/logo_nobg.png',
-            width: 96,
-            height: 96,
-          ),
+          child: const MatrixMark(size: 96),
         ),
       ),
     );

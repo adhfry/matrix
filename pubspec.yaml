@@ -51,6 +51,7 @@ dependencies:
   firebase_core: ^5.0.0
   firebase_messaging: ^17.0.0
   flutter_local_notifications: ^22.3.2
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   integration_test:
@@ -65,6 +66,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/sounds/
 
   fonts:
     - family: PlusJakartaSans
@@ -78,20 +80,23 @@ flutter:
           weight: 700
 
 flutter_native_splash:
+  # Splash native sengaja polos: logo MATRIX v2 dianimasikan Flutter
+  # (lib/features/splash/matrix_splash.dart) supaya tidak tampil dua kali.
   color: "#F4F6F4"
-  image: MATRIX-LOGO-NOBG-292X292.png
   color_dark: "#0D1210"
   android: true
   ios: true
   android_12:
     color: "#F4F6F4"
     color_dark: "#0D1210"
-    image: MATRIX-LOGO-NOBG-292X292.png
+    image: assets/branding/splash_blank.png
+    image_dark: assets/branding/splash_blank.png
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "MATRIX-LOGO-292x292.png"
+  image_path: "assets/branding/matrix_icon.png"
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "MATRIX-LOGO-292x292.png"
+  adaptive_icon_foreground: "assets/branding/matrix_icon_fg.png"
+  adaptive_icon_monochrome: "assets/branding/matrix_icon_mono.png"
   remove_alpha_ios: true

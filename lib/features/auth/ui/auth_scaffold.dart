@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/tokens.dart';
+import '../../../core/widgets/brand.dart';
+import '../../../core/widgets/matrix_mark.dart';
 import '../../../core/widgets/finance.dart';
 
 /// Kerangka layar sebelum masuk: logo kecil, judul, isi, aksi utama di bawah
@@ -61,26 +63,22 @@ class AuthScaffold extends StatelessWidget {
                         color: Colors.white,
                         shape: BoxShape.circle,
                       ),
-                      child: Image.asset(
-                        'assets/images/logo_nobg.png',
-                        excludeFromSemantics: true,
-                      ),
+                      child: const MatrixMark(size: 48),
                     ),
                     const SizedBox(height: Sp.lg),
                   ],
-                  Text(
-                    'MATRIX',
-                    style: context.text.headlineSmall?.copyWith(
-                      color: c.onHero,
-                      letterSpacing: 0.5,
+                  MatrixWordmark(color: c.onHero),
+                  if (!keyboard) ...[
+                    const SizedBox(height: Sp.sm),
+                    MatrixAcronym(strong: c.onHero, soft: c.onHeroMuted),
+                    const SizedBox(height: Sp.xs),
+                    Text(
+                      'UPTD Labkesda Kabupaten Sumenep',
+                      style: context.text.bodySmall?.copyWith(
+                        color: c.onHeroMuted,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'Absensi & jaspel pegawai UPTD Labkesda Sumenep',
-                    style: context.text.bodyMedium?.copyWith(
-                      color: c.onHeroMuted,
-                    ),
-                  ),
+                  ],
                 ],
               ),
             ),

@@ -17,6 +17,7 @@ import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notifications_screen.dart';
 import '../../identity/data/identity_repository.dart';
 import '../../identity/ui/identity_screen.dart';
+import '../../../core/widgets/matrix_mark.dart';
 import '../../security/pin_service.dart';
 import '../../security/ui/pin_screen.dart';
 
@@ -29,6 +30,7 @@ final _securityStateProvider = FutureProvider.autoDispose((ref) async {
     biometricAvailable: await pin.biometricAvailable(),
     biometricName: await pin.biometricName(),
     tts: await store.ttsEnabled(),
+    splashSound: await store.splashSound(),
   );
 });
 
@@ -84,8 +86,9 @@ class AccountScreen extends ConsumerWidget {
           final sure = await confirmDialog(
             context,
             title: 'Hapus PIN?',
-            message:
-                'Tanpa PIN, Anda harus memasukkan username dan password setiap membuka MATRIX.',
+            message: sec?.biometricOn == true
+                ? 'MATRIX tetap terkunci dengan ${sec!.biometricName}; cadangannya PIN/pola HP.'
+                : 'Tanpa PIN, Anda harus memasukkan username dan password setiap membuka MATRIX.',
             confirmLabel: 'Hapus PIN',
             destructive: true,
           );
@@ -309,56 +312,67 @@ class AccountScreen extends ConsumerWidget {
                               const ListTile(
                                 title: Text('Memuat pengaturan keamanan…'),
                               )
-                            else if (!sec.pinSet)
-                              ListTile(
-                                leading: const IconBadge(
-                                  Icons.pin_outlined,
-                                  size: 36,
-                                ),
-                                title: const Text('Buat PIN'),
-                                subtitle: const Text(
-                                  'Buka aplikasi tanpa mengetik password',
-                                ),
-                                trailing: const Icon(
-                                  Icons.chevron_right_rounded,
-                                ),
-                                onTap: () => pinAction('create'),
-                              )
                             else ...[
-                              ListTile(
-                                leading: const IconBadge(
-                                  Icons.pin_outlined,
-                                  size: 36,
-                                ),
-                                title: const Text('Ubah PIN'),
-                                trailing: const Icon(
-                                  Icons.chevron_right_rounded,
-                                ),
-                                onTap: () => pinAction('change'),
-                              ),
                               if (sec.biometricAvailable)
                                 SwitchListTile(
-                                  secondary: const IconBadge(
-                                    Icons.fingerprint_rounded,
+                                  secondary: IconBadge(
+                                    sec.biometricName == 'wajah'
+                                        ? Icons.face_rounded
+                                        : Icons.fingerprint_rounded,
                                     size: 36,
                                   ),
                                   title: Text(
                                     'Buka dengan ${sec.biometricName}',
                                   ),
+                                  subtitle: const Text(
+                                    'Terkunci lagi setelah ditinggal 5 menit',
+                                  ),
                                   value: sec.biometricOn,
                                   onChanged: toggleBiometric,
                                 ),
-                              ListTile(
-                                leading: Icon(
-                                  Icons.lock_open_rounded,
-                                  color: c.alert,
+                              if (!sec.pinSet)
+                                ListTile(
+                                  leading: const IconBadge(
+                                    Icons.pin_outlined,
+                                    size: 36,
+                                  ),
+                                  title: Text(
+                                    sec.biometricOn
+                                        ? 'Buat PIN aplikasi (opsional)'
+                                        : 'Buat PIN',
+                                  ),
+                                  subtitle: const Text(
+                                    'Buka aplikasi tanpa mengetik password',
+                                  ),
+                                  trailing: const Icon(
+                                    Icons.chevron_right_rounded,
+                                  ),
+                                  onTap: () => pinAction('create'),
+                                )
+                              else ...[
+                                ListTile(
+                                  leading: const IconBadge(
+                                    Icons.pin_outlined,
+                                    size: 36,
+                                  ),
+                                  title: const Text('Ubah PIN'),
+                                  trailing: const Icon(
+                                    Icons.chevron_right_rounded,
+                                  ),
+                                  onTap: () => pinAction('change'),
                                 ),
-                                title: Text(
-                                  'Hapus PIN',
-                                  style: TextStyle(color: c.alert),
+                                ListTile(
+                                  leading: Icon(
+                                    Icons.lock_open_rounded,
+                                    color: c.alert,
+                                  ),
+                                  title: Text(
+                                    'Hapus PIN',
+                                    style: TextStyle(color: c.alert),
+                                  ),
+                                  onTap: () => pinAction('remove'),
                                 ),
-                                onTap: () => pinAction('remove'),
-                              ),
+                              ],
                             ],
                           ],
                         ),
@@ -419,6 +433,26 @@ class AccountScreen extends ConsumerWidget {
                                   ref.invalidate(_securityStateProvider);
                                 },
                               ),
+                            if (sec != null)
+                              SwitchListTile(
+                                secondary: IconBadge(
+                                  Icons.music_note_outlined,
+                                  size: 36,
+                                  background: context.hues.gold.bg,
+                                  color: context.hues.gold.fg,
+                                ),
+                                title: const Text('Suara pembuka "Matriks"'),
+                                subtitle: const Text(
+                                  'Ikut senyap bila HP dalam mode senyap atau getar',
+                                ),
+                                value: sec.splashSound,
+                                onChanged: (v) async {
+                                  await ref
+                                      .read(secureStoreProvider)
+                                      .setSplashSound(v);
+                                  ref.invalidate(_securityStateProvider);
+                                },
+                              ),
                           ],
                         ),
                         const SizedBox(height: Sp.xl),
@@ -441,11 +475,7 @@ class AccountScreen extends ConsumerWidget {
                                 applicationVersion: ref
                                     .read(_versionProvider)
                                     .value,
-                                applicationIcon: Image.asset(
-                                  'assets/images/logo_nobg.png',
-                                  width: 48,
-                                  height: 48,
-                                ),
+                                applicationIcon: const MatrixMark(size: 48),
                                 children: const [
                                   Text(
                                     'Manajemen Absensi Terintegrasi dan Remunerasi Insentif eXpert untuk pegawai UPTD Labkesda Kabupaten Sumenep. Terhubung dengan SiLAKES.',
@@ -467,7 +497,7 @@ class AccountScreen extends ConsumerWidget {
                                   context,
                                   title: 'Keluar dari MATRIX?',
                                   message:
-                                      'PIN di HP ini ikut dihapus. Masuk lagi dengan username dan password.',
+                                      'Kunci sidik jari dan PIN di HP ini ikut dihapus. Masuk lagi dengan password, lalu aktifkan sidik jari saat ditawari.',
                                   confirmLabel: 'Keluar',
                                   destructive: true,
                                 );

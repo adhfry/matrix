@@ -142,7 +142,17 @@ class PushService {
     }
 
     if (await permission() == PushPermission.granted) {
-      await fm.register(); // token datang lewat onRegistered
+      await _registerDevice();
+    }
+  }
+
+  /// Daftarkan HP ke FCM; token datang lewat onRegistered. Gagal (mis. tanpa
+  /// Google Play Services / offline) tidak boleh menjatuhkan aplikasi.
+  Future<void> _registerDevice() async {
+    try {
+      await FirebaseMessaging.instance.register();
+    } catch (e) {
+      debugPrint('[push] register gagal: $e');
     }
   }
 
@@ -155,7 +165,7 @@ class PushService {
         s.authorizationStatus == AuthorizationStatus.provisional;
     if (ok) {
       if (!_started) await _start();
-      await FirebaseMessaging.instance.register();
+      await _registerDevice();
     }
     return ok;
   }

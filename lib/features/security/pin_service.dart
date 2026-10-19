@@ -29,10 +29,11 @@ class PinService {
   Future<bool> verify(int userId, String pin) async =>
       await _store.pinHash() == _hash(userId, pin);
 
-  Future<void> remove() async {
-    await _store.deletePinHash();
-    await _store.setBiometricEnabled(false);
-  }
+  /// Hapus PIN aplikasi saja; buka dengan biometrik (bila aktif) tetap jalan.
+  Future<void> remove() => _store.deletePinHash();
+
+  /// Aplikasi terkunci bila ada PIN aplikasi ATAU biometrik aktif.
+  Future<bool> hasLock() async => await isSet() || await biometricEnabled();
 
   Future<bool> biometricEnabled() => _store.biometricEnabled();
   Future<void> setBiometricEnabled(bool v) => _store.setBiometricEnabled(v);
@@ -60,11 +61,13 @@ class PinService {
     return 'biometrik';
   }
 
+  /// Dialog biometrik sistem. Cadangannya PIN/pola layar kunci HP di dialog
+  /// yang sama, jadi pegawai tidak wajib membuat PIN aplikasi tersendiri.
   Future<bool> authenticate() async {
     try {
       return await _auth.authenticate(
         localizedReason: 'Buka MATRIX',
-        biometricOnly: true,
+        biometricOnly: false,
         persistAcrossBackgrounding: true,
       );
     } on LocalAuthException {

@@ -67,10 +67,19 @@ class SecureStore {
       _s.write(key: 'identity_prompt_date', value: ymd);
 
   /// Panduan suara saat absen; default menyala seperti v1.
+  /// Suara pembuka "Matriks" saat membuka aplikasi (bawaan menyala; tetap ikut mode senyap HP).
+  Future<bool> splashSound() async => await _read('splash_sound') != 'false';
+  Future<void> setSplashSound(bool v) =>
+      _s.write(key: 'splash_sound', value: '$v');
+
   Future<bool> ttsEnabled() async => await _read(_ttsEnabled) != 'false';
   Future<void> setTtsEnabled(bool v) => _s.write(key: _ttsEnabled, value: '$v');
 
   /// Penjelasan izin notifikasi sudah pernah ditampilkan di HP ini.
+  /// Pengenalan MATRIX v2 sudah dilihat di HP ini (tidak ikut terhapus saat keluar).
+  Future<bool> onboarded() async => await _read('onboarded_v2') == '1';
+  Future<void> setOnboarded() => _s.write(key: 'onboarded_v2', value: '1');
+
   Future<bool> pushAsked() async => await _read('push_asked') == '1';
   Future<void> setPushAsked() => _s.write(key: 'push_asked', value: '1');
 
