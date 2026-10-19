@@ -1,3 +1,13 @@
+import java.util.Properties
+
+// Kunci rilis permanen (android/key.properties, tidak di-commit). Pembaruan
+// dalam aplikasi hanya terpasang di atas versi lama bila kuncinya SAMA, jadi
+// setelah rilis pertama kunci ini tidak boleh berganti/hilang.
+val releaseKey = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -32,11 +42,21 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        if (releaseKey.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = file(releaseKey.getProperty("storeFile"))
+                storePassword = releaseKey.getProperty("storePassword")
+                keyAlias = releaseKey.getProperty("keyAlias")
+                keyPassword = releaseKey.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Tanpa key.properties: kunci debug PC ini (hanya untuk uji).
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }

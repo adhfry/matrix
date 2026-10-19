@@ -31,7 +31,10 @@
     
     <!-- Wake Lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    
+
+    <!-- Pembaruan dalam aplikasi: pasang APK versi baru dari SiLAKES -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+
     <!-- Camera Features -->
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
@@ -74,6 +77,23 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Pembaruan dalam aplikasi: berbagi APK unduhan ke pemasang Android,
+             lalu buka lagi MATRIX setelah versi baru terpasang. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths"/>
+        </provider>
+        <receiver android:name=".UpdateRelaunchReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
         <!-- HP sebagai alat tap ke-2 (HCE). Mati sampai pegawai mendaftarkan HP
              dengan kartunya (NfcTapStore.setEnabled). -->
         <service

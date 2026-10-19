@@ -14,6 +14,8 @@ import '../../auth/session.dart';
 import '../../scanner/ui/scan_history_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../nfc_tap/data/nfc_tap_repository.dart';
+import '../../update/data/update_repository.dart';
+import '../../update/ui/update_views.dart';
 import '../../nfc_tap/ui/nfc_tap_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notifications_screen.dart';
@@ -496,6 +498,44 @@ class AccountScreen extends ConsumerWidget {
                         const SizedBox(height: Sp.xl),
                         _Group(
                           children: [
+                            Builder(
+                              builder: (context) {
+                                // Tetap tersedia walau "Nanti saja" ditekan.
+                                final up = ref.watch(appUpdateProvider).value;
+                                final has = up?.available == true;
+                                return ListTile(
+                                  leading: IconBadge(
+                                    Icons.system_update_rounded,
+                                    size: 36,
+                                    background: has
+                                        ? c.primaryContainer
+                                        : context.hues.slate.bg,
+                                    color: has
+                                        ? c.primary
+                                        : context.hues.slate.fg,
+                                  ),
+                                  title: const Text('Pembaruan aplikasi'),
+                                  subtitle: Text(
+                                    has
+                                        ? 'Versi ${up!.latest?.versionName} tersedia'
+                                        : up == null
+                                        ? 'Ketuk untuk memeriksa'
+                                        : 'Versi ${up.currentVersion} · terbaru',
+                                  ),
+                                  trailing: has
+                                      ? const StatusPill(
+                                          'Perbarui',
+                                          tone: Tone.ok,
+                                        )
+                                      : const Icon(Icons.chevron_right_rounded),
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const UpdateScreen(),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                             ListTile(
                               leading: IconBadge(
                                 Icons.info_outline_rounded,

@@ -62,6 +62,11 @@ class SecureStore {
   Future<void> saveThemeMode(String v) => _s.write(key: _themeMode, value: v);
 
   /// Tanggal terakhir modal "lengkapi data diri" ditampilkan (sekali per hari).
+  /// "YYYY-MM-DD#build": tawaran pembaruan opsional terakhir (sekali sehari per versi).
+  Future<String?> updatePromptKey() => _read('update_prompt_key');
+  Future<void> setUpdatePromptKey(String v) =>
+      _s.write(key: 'update_prompt_key', value: v);
+
   Future<String?> identityPromptDate() => _read('identity_prompt_date');
   Future<void> setIdentityPromptDate(String ymd) =>
       _s.write(key: 'identity_prompt_date', value: ymd);

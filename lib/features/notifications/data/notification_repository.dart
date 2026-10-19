@@ -192,6 +192,7 @@ class NotificationRepository {
   Future<void> registerDevice({
     required String token,
     required String appVersion,
+    int? appBuild,
     String? deviceInfo,
   }) => _api.post(
     '$_p/devices',
@@ -199,6 +200,7 @@ class NotificationRepository {
       'fcm_token': token,
       'platform': 'android',
       'app_version': appVersion,
+      'app_build': ?appBuild,
       'device_info': ?deviceInfo,
     },
   );

@@ -12,6 +12,8 @@ import '../features/auth/ui/activation_screen.dart';
 import '../features/auth/ui/login_screen.dart';
 import '../features/security/ui/pin_screen.dart';
 import '../features/shell/home_shell.dart';
+import '../features/update/data/update_repository.dart';
+import '../features/update/ui/update_views.dart';
 import 'theme/app_theme.dart';
 import 'theme/tokens.dart';
 
@@ -87,8 +89,12 @@ class _SessionRoot extends ConsumerWidget {
     final onboarded = ref.watch(onboardedProvider).value;
     final splashDone = ref.watch(splashDoneProvider);
     final firstRun = s is SessionNeedsActivation || s is SessionNeedsLogin;
+    // Pembaruan wajib menahan seluruh aplikasi (juga sebelum login).
+    final update = ref.watch(appUpdateProvider).value;
+    final gate = update != null && update.mandatory ? update.latest : null;
     final Widget screen = switch (s) {
       _ when !splashDone => const MatrixSplash(),
+      _ when gate != null => UpdateGateScreen(release: gate),
       _ when firstRun && onboarded == null => const _BootScreen(),
       _ when firstRun && onboarded == false => const OnboardingScreen(),
       SessionBooting() => const _BootScreen(),
@@ -112,7 +118,13 @@ class _SessionRoot extends ConsumerWidget {
       // Splash punya key tetap: status sesi yang berganti di belakangnya
       // (Booting -> Locked) tidak boleh membuat ulang animasi & bunyinya.
       child: KeyedSubtree(
-        key: ValueKey(splashDone ? s.runtimeType : MatrixSplash),
+        key: ValueKey(
+          !splashDone
+              ? MatrixSplash
+              : gate != null
+              ? UpdateGateScreen
+              : s.runtimeType,
+        ),
         child: screen,
       ),
     );

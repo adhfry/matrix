@@ -215,7 +215,11 @@ class PushService {
       final info = await PackageInfo.fromPlatform();
       await _ref
           .read(notificationRepositoryProvider)
-          .registerDevice(token: token, appVersion: info.version);
+          .registerDevice(
+            token: token,
+            appVersion: info.version,
+            appBuild: int.tryParse(info.buildNumber),
+          );
     } catch (e) {
       debugPrint('[push] daftar perangkat gagal: $e');
     }

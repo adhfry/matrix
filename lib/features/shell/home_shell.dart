@@ -24,6 +24,8 @@ import '../kinerja/ui/kinerja_screen.dart';
 import '../schedule/ui/schedule_screen.dart';
 import '../security/pin_service.dart';
 import '../security/ui/pin_screen.dart';
+import '../update/data/update_repository.dart';
+import '../update/ui/update_views.dart';
 
 /// Tab aktif bisa diubah dari layar lain (mis. kartu kinerja di Beranda).
 class ShellTab extends Notifier<int> {
@@ -63,7 +65,16 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       await _maybeAskAttendancePerms();
       await ref.read(pushServiceProvider).attach();
       _warmGps();
+      await _maybeOfferUpdate();
     });
+  }
+
+  /// Pembaruan opsional: lembar besar sekali sehari per versi. APK lama yang
+  /// sudah terpasang dibersihkan dari cache.
+  Future<void> _maybeOfferUpdate() async {
+    final check = await ref.read(appUpdateProvider.future);
+    if (check != null) unawaited(AppInstaller.cleanup(check.currentBuild));
+    if (mounted) await maybePromptUpdate(context, ref);
   }
 
   /// Sekali per HP: minta izin kamera & lokasi sebelum pertama kali absen,

@@ -5,6 +5,7 @@ import '../../app/app.dart';
 import '../leave/ui/leave_detail_screen.dart';
 import '../leave/ui/leave_screen.dart';
 import '../swap/ui/swap_screen.dart';
+import '../update/ui/update_views.dart';
 import '../shell/home_shell.dart';
 import 'ui/notifications_screen.dart';
 
@@ -48,6 +49,10 @@ Future<void> openNotificationRoute({
           builder: (_) =>
               id == null ? const LeaveScreen() : LeaveDetailScreen(id: id),
         ),
+      );
+    case 'update':
+      await nav.push(
+        MaterialPageRoute<void>(builder: (_) => const UpdateScreen()),
       );
     case 'swap':
       await nav.push(
