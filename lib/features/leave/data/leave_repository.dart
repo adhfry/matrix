@@ -39,6 +39,10 @@ class LeaveItem {
     this.submittedAt,
     this.decidedAt,
     this.reviewer,
+    this.cancelledAt,
+    this.cancelledBy,
+    this.cancelledBySelf = false,
+    this.cancelReason,
   });
 
   final int id;
@@ -49,7 +53,7 @@ class LeaveItem {
   final int days;
   final String reason;
   final String
-  status; // Pending | Approved | Approved_WithDeduction | Approved_NoDeduction | Rejected
+  status; // Draft | Pending | Approved_WithDeduction | Approved_NoDeduction | Rejected | Cancelled
   final String? attachmentUrl;
   final double deduction;
   final String? adminNotes;
@@ -63,6 +67,13 @@ class LeaveItem {
   final DateTime? decidedAt;
   final String? reviewer;
 
+  /// Dibatalkan: ditarik pegawai saat menunggu, atau oleh admin setelah disetujui.
+  final DateTime? cancelledAt;
+  final String? cancelledBy;
+  final bool cancelledBySelf;
+  final String? cancelReason;
+
+  bool get isCancelled => status == 'Cancelled';
   bool get isDraft => status == 'Draft';
   bool get isPending => status == 'Pending';
   bool get isRejected => status == 'Rejected';
@@ -85,6 +96,10 @@ class LeaveItem {
     submittedAt: J.dt(j['submitted_at']),
     decidedAt: J.dt(j['decided_at']),
     reviewer: J.s(j['reviewer']),
+    cancelledAt: J.dt(j['cancelled_at']),
+    cancelledBy: J.s(j['cancelled_by']),
+    cancelledBySelf: j['cancelled_by_self'] == true,
+    cancelReason: J.s(j['cancel_reason']),
   );
 }
 
@@ -116,6 +131,9 @@ class LeaveMonth {
   final LeaveRules rules;
 }
 
+String _ymd(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
 class LeaveRepository {
   LeaveRepository(this._api);
   final ApiClient _api;
@@ -145,13 +163,11 @@ class LeaveRepository {
     File? attachment,
     Uint8List? signature,
   }) async {
-    String ymd(DateTime d) =>
-        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     final form = FormData.fromMap({
       'leave_type': type,
       'leave_subtype': subtype,
-      'start_date': ymd(start),
-      'end_date': ymd(end),
+      'start_date': _ymd(start),
+      'end_date': _ymd(end),
       'reason': reason,
       if (attachment != null)
         'attachment': await MultipartFile.fromFile(
@@ -167,6 +183,24 @@ class LeaveRepository {
     });
     return J.i(J.m(await _api.post('$_p/leave/request', data: form))['id']);
   }
+
+  /// Cek tanggal sebelum menandatangani (bertumpuk, libur, sudah absen,
+  /// jaspel terbit). Melempar [ApiException] berisi alasan bila ditolak.
+  Future<void> check(DateTime start, DateTime end) => _api.get(
+    '$_p/leave/check',
+    query: {'start_date': _ymd(start), 'end_date': _ymd(end)},
+  );
+
+  /// Tarik pengajuan yang masih menunggu persetujuan.
+  Future<LeaveItem> cancel(int id, {String? reason}) async =>
+      LeaveItem.fromJson(
+        J.m(
+          await _api.post(
+            '$_p/leave/$id/cancel',
+            data: {if (reason != null && reason.isNotEmpty) 'reason': reason},
+          ),
+        ),
+      );
 
   /// Detail satu pengajuan milik sendiri (halaman detail).
   Future<LeaveItem> detail(int id) async =>

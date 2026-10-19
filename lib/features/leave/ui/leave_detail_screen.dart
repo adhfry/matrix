@@ -10,7 +10,8 @@ import '../data/leave_repository.dart';
 import 'leave_letter_screen.dart';
 
 /// Detail satu pengajuan izin/sakit/cuti: rincian, surat, lampiran, potongan,
-/// catatan admin, dan linimasa (dibuat -> diajukan -> diputuskan oleh siapa).
+/// catatan admin, linimasa (dibuat -> diajukan -> diputuskan oleh siapa ->
+/// dibatalkan), dan tombol tarik pengajuan selama masih menunggu.
 class LeaveDetailScreen extends ConsumerWidget {
   const LeaveDetailScreen({super.key, required this.id});
   final int id;
@@ -46,6 +47,19 @@ class LeaveDetailScreen extends ConsumerWidget {
               _Details(item: item),
               const SizedBox(height: Sp.lg),
               _Timeline(item: item),
+              if (item.isPending) ...[
+                const SizedBox(height: Sp.lg),
+                _WithdrawButton(item: item),
+              ],
+              if (item.isApproved) ...[
+                const SizedBox(height: Sp.md),
+                Text(
+                  'Ternyata masuk kerja di tanggal izin? Hubungi admin untuk membatalkan izin; jadwal akan dikembalikan.',
+                  style: context.text.bodySmall?.copyWith(
+                    color: context.mx.inkMuted,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -58,6 +72,7 @@ class LeaveDetailScreen extends ConsumerWidget {
   'Draft' => ('Draf, belum diajukan', Tone.neutral, Icons.edit_note_rounded),
   'Pending' => ('Menunggu persetujuan', Tone.pending, Icons.schedule_rounded),
   'Rejected' => ('Ditolak', Tone.alert, Icons.cancel_outlined),
+  'Cancelled' => ('Dibatalkan', Tone.neutral, Icons.block_rounded),
   _ => ('Disetujui', Tone.ok, Icons.check_circle_outline_rounded),
 };
 
@@ -151,7 +166,14 @@ class _LetterCard extends ConsumerWidget {
       String title,
       String body,
       String action,
-    ) = switch (item.letterStatus) {
+    ) = switch (item.isCancelled || item.isRejected
+        ? 'closed'
+        : item.letterStatus) {
+      'closed' => (
+        item.isCancelled ? 'Surat izin: dibatalkan' : 'Surat izin: ditolak',
+        'Surat disimpan sebagai arsip dan tidak perlu dikirim ke Kepala UPTD.',
+        'Lihat surat',
+      ),
       'draft' => (
         'Surat izin: draf',
         'Sudah Anda tandatangani, belum diajukan. Tinjau lalu ajukan ke admin.',
@@ -205,7 +227,9 @@ class _LetterCard extends ConsumerWidget {
                   MaterialPageRoute(
                     builder: (_) => LeaveLetterScreen(
                       id: item.id,
-                      status: item.letterStatus!,
+                      status: item.isCancelled || item.isRejected
+                          ? 'closed'
+                          : item.letterStatus!,
                     ),
                   ),
                 );
@@ -223,6 +247,85 @@ class _LetterCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Tarik pengajuan yang masih menunggu (jadwal belum berubah selama menunggu).
+class _WithdrawButton extends ConsumerStatefulWidget {
+  const _WithdrawButton({required this.item});
+  final LeaveItem item;
+
+  @override
+  ConsumerState<_WithdrawButton> createState() => _WithdrawButtonState();
+}
+
+class _WithdrawButtonState extends ConsumerState<_WithdrawButton> {
+  bool _busy = false;
+
+  Future<void> _withdraw() async {
+    final reason = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tarik pengajuan?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Admin tidak akan memprosesnya lagi. Bila masih perlu izin, buat pengajuan baru.',
+            ),
+            const SizedBox(height: Sp.md),
+            TextField(
+              controller: reason,
+              maxLength: 500,
+              decoration: const InputDecoration(
+                labelText: 'Alasan (opsional)',
+                hintText: 'Mis. sudah sehat, jadi masuk kerja',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Kembali'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Tarik pengajuan'),
+          ),
+        ],
+      ),
+    );
+    final text = reason.text.trim();
+    reason.dispose();
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(leaveRepositoryProvider)
+          .cancel(widget.item.id, reason: text);
+      ref.invalidate(leaveDetailProvider(widget.item.id));
+      ref.invalidate(leaveMonthProvider);
+      if (mounted) showMxSnack(context, 'Pengajuan dibatalkan.', tone: Tone.ok);
+    } catch (e) {
+      if (mounted) showMxSnack(context, e.toString(), tone: Tone.alert);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(foregroundColor: context.mx.alert),
+      onPressed: _busy ? null : _withdraw,
+      icon: const Icon(Icons.undo_rounded),
+      label: Text(_busy ? 'Membatalkan…' : 'Tarik pengajuan'),
+    ),
+  );
 }
 
 class _Details extends StatelessWidget {
@@ -314,6 +417,9 @@ class _Timeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rejected = item.isRejected;
+    final cancelled = item.isCancelled;
+    final approvedOnce =
+        item.isApproved || (cancelled && item.reviewer != null);
     final steps = <({String title, String? detail, bool done, Tone tone})>[
       (
         title: item.letterStatus != null
@@ -334,14 +440,33 @@ class _Timeline extends StatelessWidget {
       (
         title: rejected
             ? 'Ditolak admin'
-            : (item.isApproved ? 'Disetujui admin' : 'Keputusan admin'),
+            : (approvedOnce ? 'Disetujui admin' : 'Keputusan admin'),
         detail: item.decidedAt == null
-            ? (item.isDraft ? 'Menunggu pengajuan' : 'Menunggu keputusan admin')
+            ? (item.isDraft
+                  ? 'Menunggu pengajuan'
+                  : cancelled
+                  ? 'Tidak diputuskan, pengajuan ditarik'
+                  : 'Menunggu keputusan admin')
             : '${_when(item.decidedAt!)}${item.reviewer == null ? '' : '\noleh ${item.reviewer}'}',
         done: item.decidedAt != null,
         tone: rejected ? Tone.alert : Tone.ok,
       ),
-      if (item.letterStatus != null && !rejected)
+      if (cancelled)
+        (
+          title: item.cancelledBySelf
+              ? 'Ditarik oleh Anda'
+              : 'Dibatalkan admin, jadwal dikembalikan',
+          detail: [
+            if (item.cancelledAt != null) _when(item.cancelledAt!),
+            if (!item.cancelledBySelf && item.cancelledBy != null)
+              'oleh ${item.cancelledBy}',
+            if (item.cancelReason != null && item.cancelReason!.isNotEmpty)
+              'Alasan: ${item.cancelReason}',
+          ].join('\n'),
+          done: true,
+          tone: Tone.alert,
+        ),
+      if (item.letterStatus != null && !rejected && !cancelled)
         (
           title: 'Surat ditandatangani lengkap & diarsipkan',
           detail: item.letterStatus == 'final' && item.decidedAt != null

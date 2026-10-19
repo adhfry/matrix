@@ -137,7 +137,8 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
 }
 
 /// Langkah 3-4: tinjau draf & ajukan, lalu kirim ke Kepala UPTD. Juga dipakai
-/// membuka surat dari riwayat ([status] = draft | submitted | final).
+/// membuka surat dari riwayat ([status] = draft | submitted | final | closed;
+/// closed = ditolak/dibatalkan, surat hanya arsip).
 class LeaveLetterScreen extends ConsumerStatefulWidget {
   const LeaveLetterScreen({super.key, required this.id, required this.status});
   final int id;
@@ -261,6 +262,10 @@ class _LeaveLetterScreenState extends ConsumerState<LeaveLetterScreen> {
       'submitted' => (
         'Pengajuan terkirim. Kirim surat ini ke Kepala UPTD; setelah disetujui, surat bertanda tangan lengkap tersimpan otomatis.',
         Tone.ok,
+      ),
+      'closed' => (
+        'Pengajuan ini ditolak atau dibatalkan. Surat disimpan sebagai arsip dan tidak perlu dikirim ke Kepala UPTD.',
+        Tone.neutral,
       ),
       _ => ('Surat sudah disetujui dan ditandatangani lengkap.', Tone.ok),
     };

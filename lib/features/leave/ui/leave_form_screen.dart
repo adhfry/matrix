@@ -28,6 +28,7 @@ class _LeaveFormScreenState extends ConsumerState<LeaveFormScreen> {
   DateTimeRange? _range;
   File? _attachment;
   String? _error;
+  bool _checking = false;
 
   static const _maxBytes = 2 * 1024 * 1024; // batas server 2 MB
 
@@ -119,7 +120,21 @@ class _LeaveFormScreenState extends ConsumerState<LeaveFormScreen> {
       setState(() => _error = 'Pilih tanggal izin terlebih dahulu.');
       return;
     }
-    setState(() => _error = null);
+    // Cek di server dulu supaya pegawai tidak menandatangani surat yang pasti
+    // ditolak (bertumpuk, hari libur, sudah absen, jaspel sudah terbit).
+    setState(() {
+      _error = null;
+      _checking = true;
+    });
+    try {
+      await ref.read(leaveRepositoryProvider).check(_range!.start, _range!.end);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+      return;
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+    if (!mounted) return;
     await Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => LeaveSignScreen(
@@ -290,10 +305,17 @@ class _LeaveFormScreenState extends ConsumerState<LeaveFormScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _next,
+                onPressed: _checking ? null : _next,
                 iconAlignment: IconAlignment.end,
-                icon: const Icon(Icons.arrow_forward_rounded),
-                label: const Text('Lanjut ke tanda tangan'),
+                icon: _checking
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.arrow_forward_rounded),
+                label: Text(
+                  _checking ? 'Memeriksa tanggal…' : 'Lanjut ke tanda tangan',
+                ),
               ),
             ),
           ],
