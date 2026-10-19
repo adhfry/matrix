@@ -146,7 +146,9 @@ class _Header extends StatelessWidget {
             ),
           ),
           Text(
-            '${item.days} hari',
+            item.cancelledDays.isNotEmpty && !item.isCancelled
+                ? '${item.days} hari · ${item.activeDays} hari berlaku, ${item.cancelledDays.length} hari dibatalkan'
+                : '${item.days} hari',
             style: context.text.bodyMedium?.copyWith(color: c.inkMuted),
           ),
         ],
@@ -400,6 +402,13 @@ class _Details extends StatelessWidget {
                 ),
               ),
             ),
+          if (item.cancelledDays.isNotEmpty)
+            row(
+              'Hari dibatalkan',
+              text(
+                item.cancelledDays.map((d) => Fmt.dayLong(d.date)).join('\n'),
+              ),
+            ),
           if (item.adminNotes != null && item.adminNotes!.trim().isNotEmpty)
             row('Catatan admin', text(item.adminNotes!)),
         ],
@@ -451,6 +460,18 @@ class _Timeline extends StatelessWidget {
         done: item.decidedAt != null,
         tone: rejected ? Tone.alert : Tone.ok,
       ),
+      for (final d in item.cancelledDays)
+        (
+          title: 'Izin ${Fmt.dayMedium(d.date)} dibatalkan admin',
+          detail: [
+            if (d.at != null) _when(d.at!),
+            if (d.by != null) 'oleh ${d.by}',
+            'Jadwal hari itu dikembalikan',
+            if (d.reason != null && d.reason!.isNotEmpty) 'Alasan: ${d.reason}',
+          ].join('\n'),
+          done: true,
+          tone: Tone.alert,
+        ),
       if (cancelled)
         (
           title: item.cancelledBySelf

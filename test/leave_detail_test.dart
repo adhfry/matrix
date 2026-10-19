@@ -71,4 +71,43 @@ void main() {
       expect(find.text('Tarik pengajuan'), findsNothing);
     },
   );
+
+  testWidgets(
+    'batal sebagian: hari berlaku, hari dibatalkan, dan linimasanya',
+    (tester) async {
+      await _pump(
+        tester,
+        _leave({
+          'status': 'Approved_WithDeduction',
+          'end_date': '2026-10-23',
+          'duration_days': 3,
+          'active_days': 2,
+          'decided_at': '2026-10-19 09:00:00',
+          'reviewer': 'Admin Labkesda',
+          'cancelled_days': [
+            {
+              'date': '2026-10-23',
+              'reason': 'Hari ketiga sudah masuk',
+              'by': 'Admin Labkesda',
+              'at': '2026-10-23 08:00:00',
+            },
+          ],
+        }),
+      );
+      expect(find.text('Disetujui'), findsOneWidget);
+      expect(
+        find.textContaining('2 hari berlaku, 1 hari dibatalkan'),
+        findsOneWidget,
+      );
+      await tester.scrollUntilVisible(
+        find.textContaining('dibatalkan admin'),
+        200,
+      );
+      expect(
+        find.textContaining('Alasan: Hari ketiga sudah masuk'),
+        findsOneWidget,
+      );
+      expect(find.text('Tarik pengajuan'), findsNothing);
+    },
+  );
 }

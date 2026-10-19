@@ -21,6 +21,23 @@ const leaveSubtypes = <String, List<String>>{
   ],
 };
 
+/// Satu hari yang dibatalkan admin dari izin yang tetap disetujui.
+class LeaveCancelledDay {
+  const LeaveCancelledDay({required this.date, this.reason, this.by, this.at});
+  final DateTime date;
+  final String? reason;
+  final String? by;
+  final DateTime? at;
+
+  factory LeaveCancelledDay.fromJson(Map<String, dynamic> j) =>
+      LeaveCancelledDay(
+        date: DateTime.parse(J.s(j['date'])!),
+        reason: J.s(j['reason']),
+        by: J.s(j['by']),
+        at: J.dt(j['at']),
+      );
+}
+
 class LeaveItem {
   const LeaveItem({
     required this.id,
@@ -43,7 +60,9 @@ class LeaveItem {
     this.cancelledBy,
     this.cancelledBySelf = false,
     this.cancelReason,
-  });
+    this.cancelledDays = const [],
+    int? activeDays,
+  }) : activeDays = activeDays ?? days;
 
   final int id;
   final String type;
@@ -73,6 +92,10 @@ class LeaveItem {
   final bool cancelledBySelf;
   final String? cancelReason;
 
+  /// Pembatalan sebagian: hari yang dibatalkan & jumlah hari yang masih berlaku.
+  final List<LeaveCancelledDay> cancelledDays;
+  final int activeDays;
+
   bool get isCancelled => status == 'Cancelled';
   bool get isDraft => status == 'Draft';
   bool get isPending => status == 'Pending';
@@ -100,6 +123,11 @@ class LeaveItem {
     cancelledBy: J.s(j['cancelled_by']),
     cancelledBySelf: j['cancelled_by_self'] == true,
     cancelReason: J.s(j['cancel_reason']),
+    cancelledDays: J
+        .l(j['cancelled_days'])
+        .map(LeaveCancelledDay.fromJson)
+        .toList(),
+    activeDays: j['active_days'] == null ? null : J.i(j['active_days']),
   );
 }
 
