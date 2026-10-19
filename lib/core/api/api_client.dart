@@ -149,6 +149,19 @@ class ApiClient {
     }
   }
 
+  /// Berkas biner ke memori (mis. surat izin PDF untuk pratinjau & dibagikan).
+  Future<Uint8List> bytes(String path) async {
+    try {
+      final res = await _dio.get<List<int>>(
+        path,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return Uint8List.fromList(res.data ?? const []);
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<dynamic> delete(String path, {Object? data}) =>
       _send(() => _dio.delete<dynamic>(path, data: data));
 

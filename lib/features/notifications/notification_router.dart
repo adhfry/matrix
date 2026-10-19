@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app.dart';
+import '../leave/ui/leave_detail_screen.dart';
 import '../leave/ui/leave_screen.dart';
 import '../swap/ui/swap_screen.dart';
 import '../shell/home_shell.dart';
@@ -40,8 +41,13 @@ Future<void> openNotificationRoute({
     case 'attendance':
       toTab(Tabs.home);
     case 'leave':
+      // "leave?id=12" -> detail pengajuan; tanpa id -> daftar.
+      final id = int.tryParse(uri?.queryParameters['id'] ?? '');
       await nav.push(
-        MaterialPageRoute<void>(builder: (_) => const LeaveScreen()),
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              id == null ? const LeaveScreen() : LeaveDetailScreen(id: id),
+        ),
       );
     case 'swap':
       await nav.push(

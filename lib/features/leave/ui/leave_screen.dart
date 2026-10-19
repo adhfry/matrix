@@ -7,6 +7,7 @@ import '../../../core/widgets/finance.dart';
 import '../../../core/widgets/month_switcher.dart';
 import '../../../core/widgets/mx.dart';
 import '../data/leave_repository.dart';
+import 'leave_detail_screen.dart';
 import 'leave_form_screen.dart';
 
 class LeaveScreen extends ConsumerStatefulWidget {
@@ -19,22 +20,14 @@ class LeaveScreen extends ConsumerStatefulWidget {
 class _LeaveScreenState extends ConsumerState<LeaveScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
 
-  Future<void> _new() async {
-    final sent = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => const LeaveFormScreen(),
-        fullscreenDialog: true,
-      ),
-    );
-    if (sent == true && mounted) {
-      ref.invalidate(leaveMonthProvider(_month));
-      showMxSnack(
-        context,
-        'Pengajuan terkirim. Admin akan meninjau.',
-        tone: Tone.ok,
-      );
-    }
-  }
+  // Alur: isi data -> tanda tangan -> tinjau draf -> ajukan & kirim ke Kepala
+  // UPTD (leave_letter_screen.dart). Daftar diperbarui lewat leaveMonthProvider.
+  Future<void> _new() => Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => const LeaveFormScreen(),
+      fullscreenDialog: true,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -98,32 +91,24 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen> {
   }
 }
 
-class _LeaveCard extends StatelessWidget {
+class _LeaveCard extends ConsumerWidget {
   const _LeaveCard({required this.item});
   final LeaveItem item;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.mx;
-    final (String label, Tone tone, IconData icon) = switch (item.status) {
-      'Pending' => (
-        'Menunggu persetujuan',
-        Tone.pending,
-        Icons.schedule_rounded,
-      ),
-      'Rejected' => ('Ditolak', Tone.alert, Icons.cancel_outlined),
-      _ => ('Disetujui', Tone.ok, Icons.check_circle_outline_rounded),
-    };
+    final (label, tone, icon) = leaveStatusOf(item);
     final range = item.start == item.end
         ? Fmt.dayMedium(item.start)
         : '${Fmt.dayMedium(item.start)} – ${Fmt.dayMedium(item.end)}';
-    final h = context.hues;
-    final (IconData typeIcon, Hue hue) = switch (item.type) {
-      'Sakit' => (Icons.sick_outlined, h.sky),
-      'Cuti' => (Icons.beach_access_outlined, h.gold),
-      _ => (Icons.family_restroom_outlined, h.purple),
-    };
+    final (typeIcon, hue) = leaveTypeStyle(context, item.type);
     return MxCard(
+      semanticLabel:
+          '${item.subtype ?? item.type}, $range, $label. Ketuk untuk detail.',
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => LeaveDetailScreen(id: item.id)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -161,16 +146,32 @@ class _LeaveCard extends StatelessWidget {
               style: context.text.bodySmall?.copyWith(color: c.ink),
             ),
           ],
-          if (item.attachmentUrl != null) ...[
-            const SizedBox(height: Sp.sm),
-            Row(
-              children: [
+          const SizedBox(height: Sp.sm),
+          Row(
+            children: [
+              if (item.letterStatus != null) ...[
+                Icon(Icons.description_outlined, size: 16, color: c.primary),
+                const SizedBox(width: 4),
+                Text(switch (item.letterStatus) {
+                  'draft' => 'Surat draf',
+                  'final' => 'Surat lengkap',
+                  _ => 'Surat diajukan',
+                }, style: context.text.bodySmall?.copyWith(color: c.primary)),
+                const SizedBox(width: Sp.md),
+              ],
+              if (item.attachmentUrl != null) ...[
                 Icon(Icons.attach_file_rounded, size: 16, color: c.inkMuted),
                 const SizedBox(width: 4),
-                Text('Ada lampiran', style: context.text.bodySmall),
+                Text('Lampiran', style: context.text.bodySmall),
               ],
-            ),
-          ],
+              const Spacer(),
+              Text(
+                'Detail',
+                style: context.text.labelMedium?.copyWith(color: c.primary),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 18, color: c.primary),
+            ],
+          ),
         ],
       ),
     );

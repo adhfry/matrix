@@ -6,12 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/theme/tokens.dart';
-import '../../../core/api/api_client.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/mx.dart';
 import '../../auth/ui/auth_scaffold.dart';
 import '../../kinerja/data/kinerja_models.dart';
 import '../data/leave_repository.dart';
+import 'leave_letter_screen.dart';
 
 class LeaveFormScreen extends ConsumerStatefulWidget {
   const LeaveFormScreen({super.key});
@@ -27,7 +27,6 @@ class _LeaveFormScreenState extends ConsumerState<LeaveFormScreen> {
   String _subtype = 'Sakit';
   DateTimeRange? _range;
   File? _attachment;
-  bool _busy = false;
   String? _error;
 
   static const _maxBytes = 2 * 1024 * 1024; // batas server 2 MB
@@ -113,33 +112,28 @@ class _LeaveFormScreenState extends ConsumerState<LeaveFormScreen> {
     });
   }
 
-  Future<void> _submit() async {
+  /// Lanjut ke tanda tangan; pengajuan dibuat sebagai draf surat di sana.
+  Future<void> _next() async {
     if (!_form.currentState!.validate()) return;
     if (_range == null) {
       setState(() => _error = 'Pilih tanggal izin terlebih dahulu.');
       return;
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref
-          .read(leaveRepositoryProvider)
-          .submit(
+    setState(() => _error = null);
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => LeaveSignScreen(
+          input: LeaveDraftInput(
             type: _type,
             subtype: _subtype,
             start: _range!.start,
             end: _range!.end,
             reason: _reason.text.trim(),
             attachment: _attachment,
-          );
-      if (mounted) Navigator.of(context).pop(true);
-    } on ApiException catch (e) {
-      setState(() => _error = e.message);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -293,11 +287,14 @@ class _LeaveFormScreenState extends ConsumerState<LeaveFormScreen> {
               InlineError(_error!),
             ],
             const SizedBox(height: Sp.xl),
-            BusyButton(
-              label: 'Kirim pengajuan',
-              busyLabel: 'Mengirim…',
-              busy: _busy,
-              onPressed: _submit,
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _next,
+                iconAlignment: IconAlignment.end,
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('Lanjut ke tanda tangan'),
+              ),
             ),
           ],
         ),
