@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app.dart';
 import '../leave/ui/leave_screen.dart';
+import '../swap/ui/swap_screen.dart';
 import '../shell/home_shell.dart';
 import 'ui/notifications_screen.dart';
 
@@ -12,13 +13,15 @@ import 'ui/notifications_screen.dart';
 /// [goTab] memindah tab beranda (dari layanan maupun widget).
 Future<void> openNotificationRoute({
   required void Function(int tab) goTab,
+  void Function(DateTime month)? jumpMonth,
   String? route,
   String? webUrl,
   bool fromInbox = false,
 }) async {
   final nav = rootNavigatorKey.currentState;
   if (nav == null) return;
-  final path = Uri.tryParse(route ?? '')?.path ?? '';
+  final uri = Uri.tryParse(route ?? '');
+  final path = uri?.path ?? '';
 
   void toTab(int tab) {
     nav.popUntil((r) => r.isFirst);
@@ -29,12 +32,23 @@ Future<void> openNotificationRoute({
     case 'jaspel':
       toTab(Tabs.kinerja);
     case 'schedule':
+      // "schedule?month=2026-11" -> buka bulan itu.
+      final m = DateTime.tryParse('${uri?.queryParameters['month'] ?? ''}-01');
+      if (m != null) jumpMonth?.call(m);
       toTab(Tabs.schedule);
     case 'attendance':
       toTab(Tabs.home);
     case 'leave':
       await nav.push(
         MaterialPageRoute<void>(builder: (_) => const LeaveScreen()),
+      );
+    case 'swap':
+      await nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => SwapScreen(
+            focusId: int.tryParse(uri?.queryParameters['id'] ?? ''),
+          ),
+        ),
       );
     case 'chat' when webUrl != null && webUrl.isNotEmpty:
       await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);

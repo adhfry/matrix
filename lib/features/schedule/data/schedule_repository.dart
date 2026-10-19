@@ -48,6 +48,7 @@ extension ShiftGroupX on ShiftGroup {
 
 class MyScheduleDay {
   const MyScheduleDay({
+    this.id,
     required this.date,
     required this.status,
     this.shift,
@@ -56,6 +57,8 @@ class MyScheduleDay {
     this.attendanceStatus,
   });
 
+  /// ID jadwal (dipakai untuk tukar jadwal).
+  final int? id;
   final DateTime date;
   final String status;
   final ShiftInfo? shift;
@@ -68,6 +71,7 @@ class MyScheduleDay {
   factory MyScheduleDay.fromJson(Map<String, dynamic> j) {
     final a = j['attendance'] is Map ? J.m(j['attendance']) : null;
     return MyScheduleDay(
+      id: j['id'] == null ? null : J.i(j['id']),
       date: DateTime.parse(J.s(j['date'])!),
       status: J.s(j['status']) ?? '',
       shift: j['shift'] is Map ? ShiftInfo.fromJson(J.m(j['shift'])) : null,

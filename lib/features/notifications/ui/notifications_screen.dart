@@ -5,6 +5,7 @@ import '../../../app/theme/tokens.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/finance.dart';
 import '../../../core/widgets/mx.dart';
+import '../../schedule/ui/schedule_screen.dart';
 import '../../shell/home_shell.dart';
 import '../data/notification_repository.dart';
 import '../notification_router.dart';
@@ -43,6 +44,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     await ref.read(inboxProvider.notifier).markRead(n);
     await openNotificationRoute(
       goTab: (t) => ref.read(tabProvider.notifier).go(t),
+      jumpMonth: (m) => ref.read(scheduleJumpProvider.notifier).go(m),
       route: n.route,
       webUrl: n.webUrl,
       fromInbox: true,

@@ -9,6 +9,8 @@ import '../../../core/widgets/month_switcher.dart';
 import '../../../core/widgets/mx.dart';
 import '../../auth/session.dart';
 import '../data/schedule_repository.dart';
+import '../../swap/data/swap_repository.dart';
+import '../../swap/ui/swap_screen.dart';
 import 'shift_style.dart';
 import 'team_full_screen.dart';
 import 'team_grid.dart';
@@ -19,6 +21,18 @@ DateTime _maxMonth() => DateTime(DateTime.now().year, DateTime.now().month + 2);
 int _monthsBetween(DateTime a, DateTime b) =>
     (b.year - a.year) * 12 + b.month - a.month;
 
+/// Lompat ke bulan tertentu di tab Jadwal (dari tukar jadwal & notifikasi).
+class ScheduleJump extends Notifier<DateTime?> {
+  @override
+  DateTime? build() => null;
+
+  void go(DateTime d) => state = DateTime(d.year, d.month);
+}
+
+final scheduleJumpProvider = NotifierProvider<ScheduleJump, DateTime?>(
+  ScheduleJump.new,
+);
+
 class ScheduleScreen extends ConsumerStatefulWidget {
   const ScheduleScreen({super.key});
 
@@ -28,7 +42,9 @@ class ScheduleScreen extends ConsumerStatefulWidget {
 
 class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   int _view = 0; // 0 = jadwal saya per bulan, 1 = tim 4 minggu
-  late DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month =
+      ref.read(scheduleJumpProvider) ??
+      DateTime(DateTime.now().year, DateTime.now().month);
   late final _pages = PageController(
     initialPage: _monthsBetween(_minMonth, _month),
   );
@@ -53,6 +69,12 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(scheduleJumpProvider, (_, m) {
+      if (m == null) return;
+      setState(() => _view = 0);
+      // Tunggu PageView terpasang (bisa sedang di tampilan Tim).
+      WidgetsBinding.instance.addPostFrameCallback((_) => _goMonth(m));
+    });
     return Scaffold(
       body: Column(
         children: [
@@ -200,6 +222,8 @@ class _MyMonth extends ConsumerWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: Sp.md),
+              const StaggerIn(index: 1, child: _SwapEntry()),
               const SizedBox(height: Sp.lg),
               StaggerIn(
                 index: 1,
@@ -215,7 +239,7 @@ class _MyMonth extends ConsumerWidget {
                       : 'Rincian',
                   subtitle: '${upcoming.length} hari',
                 ),
-                _DayList(days: upcoming),
+                _DayList(days: upcoming, canSwap: true),
               ],
               if (past.isNotEmpty) ...[
                 const SizedBox(height: Sp.xl),
@@ -386,8 +410,11 @@ class _MonthCalendar extends StatelessWidget {
 }
 
 class _DayList extends StatelessWidget {
-  const _DayList({required this.days});
+  const _DayList({required this.days, this.canSwap = false});
   final List<MyScheduleDay> days;
+
+  /// Hari mendatang: ketuk untuk mengajukan tukar dari tanggal itu.
+  final bool canSwap;
 
   @override
   Widget build(BuildContext context) {
@@ -397,7 +424,20 @@ class _DayList extends StatelessWidget {
         children: [
           for (var i = 0; i < days.length; i++) ...[
             if (i > 0) const Divider(height: 1, indent: 72),
-            _DayTile(day: days[i]),
+            _DayTile(
+              day: days[i],
+              onTap:
+                  canSwap &&
+                      days[i].id != null &&
+                      days[i].shift != null &&
+                      days[i].checkIn == null
+                  ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => SwapScreen(from: days[i]),
+                      ),
+                    )
+                  : null,
+            ),
           ],
         ],
       ),
@@ -406,8 +446,9 @@ class _DayList extends StatelessWidget {
 }
 
 class _DayTile extends StatelessWidget {
-  const _DayTile({required this.day});
+  const _DayTile({required this.day, this.onTap});
   final MyScheduleDay day;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -428,7 +469,7 @@ class _DayTile extends StatelessWidget {
             ? const StatusPill('Hari ini', tone: Tone.ok, dense: true)
             : null,
     };
-    return Padding(
+    final tile = Padding(
       padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
       child: Row(
         children: [
@@ -493,6 +534,64 @@ class _DayTile extends StatelessWidget {
             ),
           ),
           ?trailing,
+          if (onTap != null) ...[
+            const SizedBox(width: Sp.xs),
+            Icon(Icons.swap_horiz_rounded, size: 18, color: c.inkMuted),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) return tile;
+    return Semantics(
+      button: true,
+      hint: 'Ketuk untuk tukar jadwal hari ini',
+      child: InkWell(onTap: onTap, child: tile),
+    );
+  }
+}
+
+/// Pintu masuk tukar jadwal + jumlah ajakan yang menunggu jawaban saya.
+class _SwapEntry extends ConsumerWidget {
+  const _SwapEntry();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final waiting = ref.watch(swapInboxProvider).value?.waitingMe ?? 0;
+    final h = context.hues.sky;
+    return MxCard(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SwapScreen(focusIncoming: waiting > 0),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
+      child: Row(
+        children: [
+          IconBadge(
+            Icons.swap_horiz_rounded,
+            size: 40,
+            background: h.bg,
+            color: h.fg,
+          ),
+          const SizedBox(width: Sp.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tukar jadwal', style: context.text.titleSmall),
+                Text(
+                  waiting > 0
+                      ? '$waiting ajakan menunggu jawaban Anda'
+                      : 'Dengan rekan, atau pindah shift Anda sendiri',
+                  style: context.text.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          if (waiting > 0)
+            StatusPill('$waiting', tone: Tone.pending, dense: true)
+          else
+            Icon(Icons.chevron_right_rounded, color: context.mx.inkMuted),
         ],
       ),
     );

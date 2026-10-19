@@ -15,6 +15,8 @@ import '../../features/leave/data/leave_repository.dart';
 import '../../features/notifications/data/notification_repository.dart';
 import '../../features/notifications/notification_router.dart';
 import '../../features/schedule/data/schedule_repository.dart';
+import '../../features/schedule/ui/schedule_screen.dart';
+import '../../features/swap/data/swap_repository.dart';
 import '../../features/shell/home_shell.dart';
 
 enum PushPermission { granted, denied, notDetermined, unavailable }
@@ -287,6 +289,7 @@ class PushService {
     } else if (type.startsWith('leave')) {
       _ref.invalidate(leaveMonthProvider);
     }
+    if (type.startsWith('schedule_swap')) _ref.invalidate(swapInboxProvider);
   }
 
   /// Buka tujuan notifikasi; bila sesi belum siap (terkunci PIN), ditunda.
@@ -307,6 +310,7 @@ class PushService {
     }
     await openNotificationRoute(
       goTab: (t) => _ref.read(tabProvider.notifier).go(t),
+      jumpMonth: (m) => _ref.read(scheduleJumpProvider.notifier).go(m),
       route: data['route'] as String?,
       webUrl: data['web_url'] as String?,
     );
