@@ -79,7 +79,7 @@ Future<bool> confirmKtpQuality(
                 width: double.infinity,
                 child: TextButton(
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Tetap pakai foto ini'),
+                  child: const Text('Tetap gunakan foto ini'),
                 ),
               ),
             ],

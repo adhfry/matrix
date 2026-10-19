@@ -8,8 +8,9 @@ import '../shell/home_shell.dart';
 import 'ui/notifications_screen.dart';
 
 /// Buka tujuan notifikasi. [route] dari server, mis. "jaspel?month=09-2026",
-/// "schedule?month=2026-11", "attendance", "leave", "chat?conversation=5".
-/// Chat dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal -> kotak masuk.
+/// "schedule?month=2026-11", "attendance", "leave", "chat?conversation=5",
+/// "web". Chat & "web" dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
+/// -> kotak masuk.
 /// [goTab] memindah tab beranda (dari layanan maupun widget).
 Future<void> openNotificationRoute({
   required void Function(int tab) goTab,
@@ -50,7 +51,8 @@ Future<void> openNotificationRoute({
           ),
         ),
       );
-    case 'chat' when webUrl != null && webUrl.isNotEmpty:
+    // Chat & halaman yang hanya ada di SiLAKES web (persetujuan admin, rapat).
+    case 'chat' || 'web' when webUrl != null && webUrl.isNotEmpty:
       await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
     default:
       if (!fromInbox) {

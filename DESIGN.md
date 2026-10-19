@@ -215,3 +215,50 @@ logo Gmail (merek dagang Google): bukan amplop, sudut & ujung membulat, proporsi
   Diputar lewat aliran suara sistem: ikut senyap di mode senyap/getar, tidak memotong musik; bisa
   dimatikan di Akun. Untuk rilis publik, idealnya diganti rekaman suara asli atau TTS berlisensi;
   cukup timpa berkasnya dengan titik suku kata yang sama.
+
+## 15. Beranda bervariasi, ikon MATRIX, voucher jaspel (arahan pemilik 2026-10-19)
+
+Permintaan pemilik: "card card nya masih terlalu kaku, lebih variatif, optimalkan warna variatif
+palet, bentuk card ada yang seperti ketupat, bagian klaim jaspel konteksnya reward, harus ada
+shimmering, warnanya menonjol; copywriting formal dan rapi."
+
+Revisi kedua pemilik (hari yang sama): "terlalu banyak bagian ketupat juga tidak bagus; tindakan
+absen, izin cuti backgroundnya beri ornamen biar ga polosan; ubah bentuk tombolnya, buat sendiri
+iconnya menjadi lebih khas MATRIX."
+
+- **Ketupat hanya di voucher jaspel** (kisi tipis + lencana beranyam), `lib/core/widgets/ketupat.dart`.
+  Ikon shift & catatan disiplin kembali ke lingkaran §11. Catatan antislop: "diamond" ada di daftar
+  ikon AI generik (R-04); di sini ketupat adalah motif budaya atas arahan pemilik, dibatasi satu tempat.
+- **Panel "Layanan pegawai"** (aksi cepat): bidang putih radius 28 dengan dua ornamen merek, keduanya
+  diturunkan dari logo §14, bukan pola stok (R-07): (1) huruf M pita satu warna 7% di pojok kanan
+  atas, (2) gelombang pita hijau -> emas -> merah 10-12% di dasar panel, mengulang goresan splash.
+- **Ikon MATRIX buatan sendiri** (`lib/core/widgets/matrix_glyphs.dart`, bukan pustaka ikon): garis
+  tebal berujung bulat seperti pita logo, plus satu "pita aksen" jingga -> merah pada bagian paling
+  bermakna: bahu orang (Absen), centang (Izin & cuti), baris data (Pasien KTP), tutup amplop berbentuk
+  lembah "V" huruf M (Jaspel). Mode gelap memakai pita versi terang palet §12 agar >= 3:1.
+- **Ubin daun** untuk tombol layanan: sudut kiri-atas & kanan-bawah 22, dua lainnya 8, meniru
+  lipatan pita logo. Absen = ubin hijau MATRIX (aksi utama), lainnya warna kategori §12.
+- **Ritme kartu (RHYTHM naik ke 3), tiap bentuk punya alasan elevasi:**
+  1. Kartu hari ini: putih, bayangan, menumpuk ke hero. Titik fokus layar.
+  2. Panel layanan: datar berornamen, ubin daun. Memecah deretan kartu polos.
+  3. Voucher jaspel (hanya bila ada jaspel siap diklaim): fokus kedua, lihat di bawah.
+  4. Jadwal besok: bidang berwarna kategori shift, tanpa bayangan. Informasi pendamping.
+  5. Catatan disiplin: kartu datar bergaris tipis. Elevasi paling rendah.
+- **Voucher jaspel.** Bentuk tiket (takik setengah lingkaran kiri-kanan + garis sobekan), emas palet
+  §12 yang digelapkan (#8D6007 -> #5E3F04, sama di mode terang & gelap; teks putih >= 5,5:1),
+  kisi ketupat tipis memudar dari pojok kanan atas, nominal besar, tombol putih "Klaim sekarang".
+  Dipakai juga di Kinerja untuk jaspel berstatus siap diklaim. Nominal boleh tampil karena jaspel
+  sudah dipublikasikan admin (§9). Elevasi: bayangan emas, fokus kedua setelah kartu hari ini.
+- **Pengecualian §7 (kilau berulang), atas permintaan pemilik.** Kilau emas melintas sekali tiap
+  4,2 detik HANYA di voucher jaspel, digambar di bawah teks (kontras tidak turun), berhenti saat
+  layar tidak terlihat (TickerMode) dan mati bila "kurangi animasi" aktif. Alasan: menandai satu
+  hal yang menunggu tindakan pegawai dan bernilai baginya; tidak dipakai di elemen lain.
+- **Kerangka memuat (skeleton), permintaan pemilik.** `StateView.loading` kini menampilkan kerangka
+  berkilau (`lib/core/widgets/skeleton.dart`) menggantikan pemintal + teks §7. Bentuk mengikuti wadah:
+  5 baris daftar (layar penuh), 1 baris + garis (kartu), 2 garis (ruang < 120 dp); keterangan "Memuat
+  ..." tetap tampil & dibacakan TalkBack. Kilau berhenti bila "kurangi animasi" aktif.
+- **Tanggal** dikirim `Y-m-d` dengan batas sama dengan aturan Laravel (`after:1940-01-01`,
+  `before:today`); di web memakai flatpickr (locale Indonesia, tampil "19 Oktober 1990").
+- **Bahasa formal.** Satuan ditulis lengkap ("1 kali", "9 hari"), label status baku ("Terlambat",
+  "Pulang awal"), tanpa kata percakapan ("kalau", "pakai").
+- Dial: **ENERGY 3 · RHYTHM 3 · MOTION 3**.

@@ -62,10 +62,11 @@ const _channels = <String, (String, String, Importance)>{
     'Pesan di percakapan seluruh staf',
     Importance.low,
   ),
-  'rapat': (
-    'Rapat',
-    'Undangan dan pengingat SiRapat',
-    Importance.defaultImportance,
+  'rapat': ('Rapat', 'Undangan dan pengingat SiRapat', Importance.high),
+  'persetujuan': (
+    'Persetujuan admin',
+    'Pengajuan pegawai dan hasil lab yang menunggu keputusan admin',
+    Importance.high,
   ),
   'sistem': (
     'Pengumuman',

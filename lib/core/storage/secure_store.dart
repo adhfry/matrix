@@ -75,13 +75,19 @@ class SecureStore {
   Future<bool> ttsEnabled() async => await _read(_ttsEnabled) != 'false';
   Future<void> setTtsEnabled(bool v) => _s.write(key: _ttsEnabled, value: '$v');
 
-  /// Penjelasan izin notifikasi sudah pernah ditampilkan di HP ini.
   /// Pengenalan MATRIX v2 sudah dilihat di HP ini (tidak ikut terhapus saat keluar).
   Future<bool> onboarded() async => await _read('onboarded_v2') == '1';
   Future<void> setOnboarded() => _s.write(key: 'onboarded_v2', value: '1');
 
+  /// Penjelasan izin notifikasi sudah pernah ditampilkan di HP ini.
   Future<bool> pushAsked() async => await _read('push_asked') == '1';
   Future<void> setPushAsked() => _s.write(key: 'push_asked', value: '1');
+
+  /// Penjelasan izin kamera & lokasi untuk absen sudah ditampilkan di HP ini.
+  Future<bool> attendancePermsAsked() async =>
+      await _read('attendance_perms_asked') == '1';
+  Future<void> setAttendancePermsAsked() =>
+      _s.write(key: 'attendance_perms_asked', value: '1');
 
   /// Model AI pilihan untuk membaca KTP (Pengaturan lanjutan Pasien KTP);
   /// null = bawaan server. Sengaja tidak dihapus saat keluar akun.

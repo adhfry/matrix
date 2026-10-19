@@ -7,6 +7,9 @@ import '../../../core/clock.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/finance.dart';
+import '../../../core/widgets/ketupat.dart';
+import '../../../core/widgets/matrix_glyphs.dart';
+import '../../../core/widgets/matrix_mark.dart';
 import '../../../core/widgets/mx.dart';
 import '../../../core/widgets/shift_band.dart';
 import '../../attendance/data/attendance_models.dart';
@@ -15,6 +18,7 @@ import '../../attendance/logic/attendance_gate.dart';
 import '../../attendance/ui/attendance_launcher.dart';
 import '../../auth/session.dart';
 import '../../kinerja/data/kinerja_repository.dart';
+import '../../kinerja/ui/kinerja_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notifications_screen.dart';
@@ -67,12 +71,12 @@ class HomeScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const StaggerIn(index: 0, child: _TodayCard()),
-                        const SizedBox(height: Sp.lg),
+                        const SizedBox(height: Sp.xl),
                         StaggerIn(index: 1, child: _QuickActions()),
-                        const SizedBox(height: Sp.lg),
-                        const StaggerIn(index: 2, child: _UnclaimedNotice()),
+                        const SizedBox(height: Sp.xl),
+                        const StaggerIn(index: 2, child: _JaspelReward()),
                         const StaggerIn(index: 3, child: _Tomorrow()),
-                        const SizedBox(height: Sp.lg),
+                        const SizedBox(height: Sp.xl),
                         const StaggerIn(index: 4, child: _MonthNotes()),
                       ],
                     ),
@@ -339,6 +343,23 @@ class _TodayCard extends ConsumerWidget {
           cfg,
           checkedOutToday: today?.checkOut != null,
         );
+        // Hitung mundur habis: ambil ulang status dari server (tiap 15 detik
+        // selama server belum membuka pintunya, mis. selisih jam HP).
+        final until = gate.until;
+        if (until != null) {
+          int? slot(DateTime? t) {
+            if (t == null) return null;
+            final s = t.difference(until).inSeconds;
+            return s < 1 ? null : (s - 1) ~/ 15;
+          }
+
+          ref.listen(clockProvider, (prev, next) {
+            final b = slot(next.value);
+            if (b != null && b != slot(prev?.value)) {
+              ref.invalidate(attendanceConfigProvider);
+            }
+          });
+        }
         final shift = cfg.shift;
         final group = shiftGroupOf(shift?.code);
         final w = shift?.windowsOn(cfg.scheduleDate ?? DateTime.now());
@@ -536,14 +557,14 @@ class _StatusLine extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      working ? 'Sudah bekerja' : 'Lama di kantor',
+                      working ? 'Durasi kerja berjalan' : 'Durasi kerja',
                       style: context.text.labelSmall?.copyWith(
                         color: c.inkMuted,
                       ),
                     ),
                     Semantics(
                       label:
-                          '${working ? 'Sudah bekerja' : 'Lama di kantor'} ${Fmt.hmLong((checkOut ?? now).difference(checkIn!).inSeconds)}',
+                          '${working ? 'Durasi kerja berjalan' : 'Durasi kerja'} ${Fmt.hmLong((checkOut ?? now).difference(checkIn!).inSeconds)}',
                       excludeSemantics: true,
                       child: Text(
                         Fmt.clock(
@@ -600,88 +621,80 @@ class _StatusLine extends ConsumerWidget {
   }
 }
 
+/// Layanan pegawai: panel dengan ornamen pita logo MATRIX (DESIGN.md §15) dan
+/// ikon MATRIX buatan sendiri di ubin berbentuk daun.
 class _QuickActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     void push(Widget w) =>
         Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => w));
-    return MxCard(
-      padding: const EdgeInsets.symmetric(horizontal: Sp.sm, vertical: Sp.md),
-      child: Row(
-        children: [
-          Expanded(
-            child: QuickAction(
-              icon: Icons.camera_front_rounded,
-              label: 'Absen',
-              highlight: true,
-              onTap: () => launchAttendance(context, ref),
-            ),
-          ),
-          Expanded(
-            child: QuickAction(
-              icon: Icons.event_note_outlined,
-              label: 'Izin & cuti',
-              hue: context.hues.purple,
-              onTap: () => push(const LeaveScreen()),
-            ),
-          ),
-          Expanded(
-            child: QuickAction(
-              icon: Icons.badge_outlined,
-              label: 'Pasien KTP',
-              hue: context.hues.sky,
-              onTap: () => push(const ScanHomeScreen()),
-            ),
-          ),
-          Expanded(
-            child: QuickAction(
-              icon: Icons.payments_outlined,
-              label: 'Jaspel',
-              hue: context.hues.gold,
-              onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UnclaimedNotice extends ConsumerWidget {
-  const _UnclaimedNotice();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final list = ref.watch(unclaimedJaspelProvider).value ?? const [];
-    if (list.isEmpty) return const SizedBox.shrink();
-    final months = list.map((p) => Fmt.monthYear(p.month)).join(', ');
     final c = context.mx;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Sp.lg),
-      child: MxCard(
-        color: c.primaryContainer,
-        onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
-        child: Row(
+    final h = context.hues;
+    final radius = BorderRadius.circular(Radii.hero);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: radius,
+        border: Theme.of(context).brightness == Brightness.dark
+            ? Border.all(color: c.line)
+            : null,
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(
           children: [
-            IconBadge(
-              Icons.payments_outlined,
-              background: c.surface,
-              color: context.hues.gold.fg,
+            Positioned(
+              right: -30,
+              top: -58,
+              child: MatrixMark(
+                size: 140,
+                mono: c.primary.withValues(alpha: 0.07),
+              ),
             ),
-            const SizedBox(width: Sp.md),
-            Expanded(
+            const Positioned.fill(child: CustomPaint(painter: _RibbonWave())),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Sp.lg, Sp.lg, Sp.lg, Sp.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Jaspel siap diklaim', style: context.text.titleSmall),
-                  Text(
-                    months,
-                    style: context.text.bodySmall?.copyWith(color: c.ink),
+                  Text('Layanan pegawai', style: context.text.titleSmall),
+                  const SizedBox(height: Sp.md),
+                  Row(
+                    children: [
+                      _MxAction(
+                        glyph: MxGlyph.absen,
+                        label: 'Absen',
+                        hue: Hue(c.onPrimary, c.primary),
+                        // Emas muda di hijau tua (terang); merah tua di hijau muda (gelap).
+                        accent: Theme.of(context).brightness == Brightness.dark
+                            ? const Color(0xFF7A1424)
+                            : RewardColors.glint,
+                        onTap: () => launchAttendance(context, ref),
+                      ),
+                      _MxAction(
+                        glyph: MxGlyph.izin,
+                        label: 'Izin & cuti',
+                        hue: h.purple,
+                        onTap: () => push(const LeaveScreen()),
+                      ),
+                      _MxAction(
+                        glyph: MxGlyph.ktp,
+                        label: 'Pasien KTP',
+                        hue: h.sky,
+                        onTap: () => push(const ScanHomeScreen()),
+                      ),
+                      _MxAction(
+                        glyph: MxGlyph.jaspel,
+                        label: 'Jaspel',
+                        hue: h.gold,
+                        onTap: () =>
+                            ref.read(tabProvider.notifier).go(Tabs.kinerja),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: c.inkMuted),
           ],
         ),
       ),
@@ -689,7 +702,214 @@ class _UnclaimedNotice extends ConsumerWidget {
   }
 }
 
-/// Jadwal besok: satu baris supaya pegawai tahu shift berikutnya tanpa membuka Jadwal.
+/// Gelombang pita hijau -> emas -> merah tipis di dasar panel, mengulang
+/// goresan pita pada splash.
+class _RibbonWave extends CustomPainter {
+  const _RibbonWave();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 12
+      ..strokeCap = StrokeCap.round
+      ..shader = LinearGradient(
+        colors: [
+          const Color(0xFF12AE78).withValues(alpha: 0.10),
+          const Color(0xFFF0A92A).withValues(alpha: 0.12),
+          const Color(0xFFCB213D).withValues(alpha: 0.10),
+        ],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(
+      Path()
+        ..moveTo(-10, h * 0.9)
+        ..cubicTo(w * 0.3, h * 0.62, w * 0.55, h * 1.12, w + 10, h * 0.7),
+      p,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RibbonWave old) => false;
+}
+
+class _MxAction extends StatelessWidget {
+  const _MxAction({
+    required this.glyph,
+    required this.label,
+    required this.hue,
+    required this.onTap,
+    this.accent,
+  });
+
+  final MxGlyph glyph;
+  final String label;
+  final Hue hue;
+  final VoidCallback onTap;
+  final Color? accent;
+
+  /// Ubin "daun": sudut kiri-atas & kanan-bawah lebar, dua lainnya sempit,
+  /// meniru lipatan pita pada logo.
+  static const _leaf = BorderRadius.only(
+    topLeft: Radius.circular(22),
+    topRight: Radius.circular(8),
+    bottomRight: Radius.circular(22),
+    bottomLeft: Radius.circular(8),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Semantics(
+        button: true,
+        label: label,
+        excludeSemantics: true,
+        child: PressScale(
+          onTap: onTap,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(Radii.control),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: Sp.xs),
+              child: Column(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: hue.bg,
+                      borderRadius: _leaf,
+                    ),
+                    child: MxGlyphIcon(
+                      glyph,
+                      color: hue.fg,
+                      accent: accent,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(height: Sp.sm),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: context.text.labelMedium?.copyWith(
+                      color: context.mx.ink,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Jaspel yang sudah dipublikasikan dan belum diklaim, tampil sebagai voucher
+/// emas (DESIGN.md §15): ini satu-satunya kabar "hadiah" di Beranda.
+class _JaspelReward extends ConsumerWidget {
+  const _JaspelReward();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final list = ref.watch(unclaimedJaspelProvider).value ?? const [];
+    if (list.isEmpty) return const SizedBox.shrink();
+    final total = list.fold<double>(0, (a, p) => a + p.amount);
+    final first = list
+        .map((p) => p.month)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final period = list.length == 1
+        ? 'Periode ${Fmt.monthYear(list.first.month)}'
+        : '${list.length} periode: ${list.map((p) => Fmt.monthYear(p.month)).join(', ')}';
+    void open() {
+      ref.read(kinerjaJumpProvider.notifier).go(first);
+      ref.read(tabProvider.notifier).go(Tabs.kinerja);
+    }
+
+    final onGold = context.text.bodySmall?.copyWith(
+      color: Colors.white.withValues(alpha: 0.86),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Sp.xl),
+      child: Semantics(
+        container: true,
+        label: 'Jaspel siap diklaim, ${Fmt.rupiah(total)}, $period',
+        child: PressScale(
+          onTap: open,
+          child: GestureDetector(
+            onTap: open,
+            child: RewardSurface(
+              top: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Jaspel siap diklaim',
+                          style: context.text.labelLarge?.copyWith(
+                            color: RewardColors.glint,
+                          ),
+                        ),
+                        const SizedBox(height: Sp.xs),
+                        CountUp(
+                          value: total,
+                          format: (v) => Fmt.rupiah(v),
+                          style: context.text.headlineMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: tabular,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(period, style: onGold),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: Sp.md),
+                  KetupatBadge(
+                    Icons.workspace_premium_rounded,
+                    size: 56,
+                    background: Colors.white.withValues(alpha: 0.16),
+                    color: RewardColors.glint,
+                    woven: true,
+                  ),
+                ],
+              ),
+              bottom: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Dibayarkan setelah disetujui admin.',
+                      style: onGold,
+                    ),
+                  ),
+                  const SizedBox(width: Sp.md),
+                  FilledButton(
+                    onPressed: open,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: RewardColors.top,
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: Sp.lg),
+                    ),
+                    child: const Text('Klaim sekarang'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Jadwal besok: bidang berwarna shift (tanpa bayangan) supaya terbaca sebagai
+/// informasi pendamping, bukan kartu aksi seperti kartu hari ini.
 class _Tomorrow extends ConsumerWidget {
   const _Tomorrow();
 
@@ -697,53 +917,80 @@ class _Tomorrow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(todayActivityProvider).value;
     final s = t?.tomorrowShift;
-    final c = context.mx;
     if (t == null) return const SizedBox.shrink();
     final g = shiftGroupOf(s?.code);
+    final hue = shiftHue(context, g);
     final label = s == null
         ? 'Belum ada jadwal'
         : (g == ShiftGroup.libur || g == ShiftGroup.izin ? g.short : s.name);
     final time = s == null || !g.isWork
         ? null
         : '${Fmt.time(s.workStart ?? s.checkInEnd)}–${Fmt.time(s.workEnd ?? s.checkOutStart)}';
-    return MxCard(
-      onTap: () => ref.read(tabProvider.notifier).go(Tabs.schedule),
-      padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
-      child: Row(
-        children: [
-          IconBadge(
-            g.icon,
-            size: 40,
-            background: shiftHue(context, g).bg,
-            color: shiftHue(context, g).fg,
-          ),
-          const SizedBox(width: Sp.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final radius = BorderRadius.circular(Radii.card);
+    return Semantics(
+      button: true,
+      label: 'Jadwal besok: $label${time == null ? '' : ', $time'}',
+      excludeSemantics: true,
+      child: PressScale(
+        onTap: () => ref.read(tabProvider.notifier).go(Tabs.schedule),
+        child: Material(
+          color: hue.bg,
+          borderRadius: radius,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => ref.read(tabProvider.notifier).go(Tabs.schedule),
+            child: Stack(
               children: [
-                Text(
-                  'Besok',
-                  style: context.text.labelSmall?.copyWith(color: c.inkMuted),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Sp.lg,
+                    vertical: Sp.md,
+                  ),
+                  child: Row(
+                    children: [
+                      IconBadge(
+                        g.icon,
+                        size: 44,
+                        background: context.mx.surface,
+                        color: hue.fg,
+                      ),
+                      const SizedBox(width: Sp.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Jadwal besok',
+                              style: context.text.labelSmall?.copyWith(
+                                color: hue.fg,
+                              ),
+                            ),
+                            Text(label, style: context.text.titleSmall),
+                          ],
+                        ),
+                      ),
+                      if (time != null)
+                        Text(
+                          time,
+                          style: context.text.titleSmall?.copyWith(
+                            color: hue.fg,
+                            fontFeatures: tabular,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                Text(label, style: context.text.titleSmall),
               ],
             ),
           ),
-          if (time != null)
-            Text(
-              time,
-              style: context.text.labelLarge?.copyWith(fontFeatures: tabular),
-            ),
-          const SizedBox(width: Sp.xs),
-          Icon(Icons.chevron_right_rounded, color: c.inkMuted),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Catatan disiplin bulan ini (tanpa rupiah), tiap catatan dalam lingkaran ikon.
+/// Catatan disiplin bulan ini (tanpa rupiah). Kartu datar bergaris tipis:
+/// tingkat elevasi paling rendah di Beranda.
 class _MonthNotes extends ConsumerWidget {
   const _MonthNotes();
 
@@ -761,8 +1008,8 @@ class _MonthNotes extends ConsumerWidget {
               IconBadge(
                 icon,
                 size: 40,
-                background: bad ? c.alertContainer : c.canvas,
-                color: bad ? c.alert : c.inkMuted,
+                background: bad ? c.alertContainer : context.hues.slate.bg,
+                color: bad ? c.alert : context.hues.slate.fg,
               ),
               const SizedBox(height: Sp.sm),
               Text(
@@ -781,49 +1028,60 @@ class _MonthNotes extends ConsumerWidget {
           ),
         );
 
+    final radius = BorderRadius.circular(Radii.card);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionTitle(
-          'Catatan ${Fmt.monthYear(_thisMonth())}',
+          'Catatan disiplin ${Fmt.monthYear(_thisMonth())}',
           subtitle: p.issueCount == 0
-              ? 'Tanpa pelanggaran sejauh ini'
-              : 'Ketuk untuk melihat hari yang bermasalah',
+              ? 'Belum ada catatan pelanggaran bulan ini.'
+              : 'Ketuk untuk melihat rinciannya.',
         ),
-        MxCard(
-          onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
-          padding: const EdgeInsets.symmetric(
-            vertical: Sp.lg,
-            horizontal: Sp.sm,
+        Material(
+          color: c.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: radius,
+            side: BorderSide(color: c.line),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              item(
-                Icons.login_rounded,
-                'Telat',
-                '${p.lateCount}×',
-                p.lateCount > 0,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: Sp.lg,
+                horizontal: Sp.sm,
               ),
-              item(
-                Icons.logout_rounded,
-                'Pulang cepat',
-                '${p.earlyCount}×',
-                p.earlyCount > 0,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  item(
+                    Icons.login_rounded,
+                    'Terlambat',
+                    '${p.lateCount} kali',
+                    p.lateCount > 0,
+                  ),
+                  item(
+                    Icons.logout_rounded,
+                    'Pulang awal',
+                    '${p.earlyCount} kali',
+                    p.earlyCount > 0,
+                  ),
+                  item(
+                    Icons.timer_off_outlined,
+                    'Lupa check‑out',
+                    '${p.noCheckoutCount} kali',
+                    p.noCheckoutCount > 0,
+                  ),
+                  item(
+                    Icons.person_off_outlined,
+                    'Alpa',
+                    '${p.alphaCount} hari',
+                    p.alphaCount > 0,
+                  ),
+                ],
               ),
-              item(
-                Icons.timer_off_outlined,
-                'Lupa check-out',
-                '${p.noCheckoutCount}×',
-                p.noCheckoutCount > 0,
-              ),
-              item(
-                Icons.person_off_outlined,
-                'Alpa',
-                '${p.alphaCount}',
-                p.alphaCount > 0,
-              ),
-            ],
+            ),
           ),
         ),
       ],

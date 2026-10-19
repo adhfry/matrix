@@ -145,7 +145,7 @@ class _PinScreenState extends ConsumerState<PinScreen> {
                 width: double.infinity,
                 child: TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Pakai PIN saja'),
+                  child: const Text('Gunakan PIN'),
                 ),
               ),
             ],

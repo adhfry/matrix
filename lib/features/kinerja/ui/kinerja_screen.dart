@@ -6,12 +6,25 @@ import '../../../app/theme/tokens.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/finance.dart';
+import '../../../core/widgets/ketupat.dart';
 import '../../../core/widgets/month_switcher.dart';
 import '../../../core/widgets/mx.dart';
 import '../data/kinerja_models.dart';
 import '../data/kinerja_repository.dart';
 import 'day_row_tile.dart';
 import 'jaspel_detail_screen.dart';
+
+/// Buka tab Kinerja di bulan tertentu (dari voucher jaspel di Beranda).
+class KinerjaJump extends Notifier<DateTime?> {
+  @override
+  DateTime? build() => null;
+
+  void go(DateTime d) => state = DateTime(d.year, d.month);
+}
+
+final kinerjaJumpProvider = NotifierProvider<KinerjaJump, DateTime?>(
+  KinerjaJump.new,
+);
 
 class KinerjaScreen extends ConsumerStatefulWidget {
   const KinerjaScreen({super.key});
@@ -23,11 +36,16 @@ class KinerjaScreen extends ConsumerStatefulWidget {
 enum _DayFilter { all, present, problem, leave }
 
 class _KinerjaScreenState extends ConsumerState<KinerjaScreen> {
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month =
+      ref.read(kinerjaJumpProvider) ??
+      DateTime(DateTime.now().year, DateTime.now().month);
   _DayFilter _filter = _DayFilter.all;
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(kinerjaJumpProvider, (_, m) {
+      if (m != null && m != _month) setState(() => _month = m);
+    });
     final async = ref.watch(kinerjaMonthProvider(_month));
     final k = async.value;
     return Scaffold(
@@ -313,6 +331,73 @@ class _JaspelCardState extends ConsumerState<_JaspelCard> {
       );
     }
 
+    void openDetail() => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => JaspelDetailScreen(month: widget.k.month, payroll: p),
+      ),
+    );
+
+    // Siap diklaim: voucher emas yang sama dengan Beranda (DESIGN.md §15).
+    if (p.status == 'Pending') {
+      final onGold = context.text.bodySmall?.copyWith(
+        color: Colors.white.withValues(alpha: 0.86),
+      );
+      return RewardSurface(
+        top: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Jaspel ${Fmt.monthYear(widget.k.month)} siap diklaim',
+              style: context.text.labelLarge?.copyWith(
+                color: RewardColors.glint,
+              ),
+            ),
+            const SizedBox(height: Sp.xs),
+            CountUp(
+              value: p.finalSalary,
+              format: (v) => Fmt.rupiah(v),
+              style: context.text.headlineMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontFeatures: tabular,
+              ),
+            ),
+            if (p.totalDeductions > 0)
+              Text(
+                'Remunerasi ${Fmt.rupiah(p.totalAllowances)} dikurangi potongan ${Fmt.rupiah(p.totalDeductions)}',
+                style: onGold,
+              ),
+          ],
+        ),
+        bottom: Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: openDetail,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 44),
+                ),
+                child: const Text('Rincian & slip'),
+              ),
+            ),
+            const SizedBox(width: Sp.md),
+            Expanded(
+              child: FilledButton(
+                onPressed: _claiming ? null : _claim,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: RewardColors.top,
+                  minimumSize: const Size(0, 44),
+                ),
+                child: Text(_claiming ? 'Mengirim…' : 'Klaim sekarang'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final tone = switch (p.status) {
       'Paid' => Tone.ok,
       'Requested' || 'Processed' => Tone.pending,
@@ -347,29 +432,12 @@ class _JaspelCardState extends ConsumerState<_JaspelCard> {
               style: context.text.bodySmall,
             ),
           const SizedBox(height: Sp.lg),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          JaspelDetailScreen(month: widget.k.month, payroll: p),
-                    ),
-                  ),
-                  child: const Text('Rincian & slip'),
-                ),
-              ),
-              if (p.status == 'Pending') ...[
-                const SizedBox(width: Sp.md),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _claiming ? null : _claim,
-                    child: Text(_claiming ? 'Mengirim…' : 'Klaim'),
-                  ),
-                ),
-              ],
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: openDetail,
+              child: const Text('Rincian & slip'),
+            ),
           ),
         ],
       ),

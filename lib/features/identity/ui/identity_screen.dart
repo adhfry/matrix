@@ -74,11 +74,17 @@ class _IdentityScreenState extends ConsumerState<IdentityScreen> {
   Future<void> _pickDate(IdentityField f) async {
     final current =
         DateTime.tryParse(_text[f.key]?.text ?? '') ?? DateTime(1990);
+    // Batas sama dengan aturan Laravel: after:1940-01-01, before:today.
+    final now = DateTime.now();
+    final last = DateTime(now.year, now.month, now.day - 1);
+    final first = DateTime(1940, 1, 2);
     final d = await showDatePicker(
       context: context,
-      initialDate: current,
-      firstDate: DateTime(1940),
-      lastDate: DateTime.now(),
+      initialDate: current.isAfter(last)
+          ? last
+          : (current.isBefore(first) ? first : current),
+      firstDate: first,
+      lastDate: last,
       initialEntryMode: DatePickerEntryMode.input,
       helpText: f.label,
     );

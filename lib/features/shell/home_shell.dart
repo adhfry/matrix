@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../app/theme/tokens.dart';
 import '../../app/theme/app_theme.dart';
@@ -55,8 +59,117 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       await _maybeOfferPin();
       await _maybePromptIdentity();
       await _maybeAskPush();
+      await _maybeAskAttendancePerms();
       await ref.read(pushServiceProvider).attach();
+      _warmGps();
     });
+  }
+
+  /// Sekali per HP: minta izin kamera & lokasi sebelum pertama kali absen,
+  /// supaya layar absen langsung siap. Diminta berurutan (dua dialog Android
+  /// sekaligus membuat yang kedua hilang).
+  Future<void> _maybeAskAttendancePerms() async {
+    final store = ref.read(secureStoreProvider);
+    if (!mounted || await store.attendancePermsAsked()) return;
+    final camera = await Permission.camera.status;
+    final location = await Geolocator.checkPermission();
+    final locationOk =
+        location == LocationPermission.always ||
+        location == LocationPermission.whileInUse;
+    if (camera.isGranted && locationOk) {
+      await store.setAttendancePermsAsked();
+      return;
+    }
+    await store.setAttendancePermsAsked();
+    if (!mounted) return;
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Sp.xl, 0, Sp.xl, Sp.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const IconBadge(Icons.camera_front_rounded, size: 52),
+              const SizedBox(height: Sp.lg),
+              Text(
+                'Izinkan kamera dan lokasi untuk absen',
+                style: ctx.text.titleMedium,
+              ),
+              const SizedBox(height: Sp.sm),
+              for (final (icon, line) in const [
+                (
+                  Icons.face_retouching_natural_rounded,
+                  'Kamera: foto wajah saat check-in dan check-out',
+                ),
+                (
+                  Icons.location_on_outlined,
+                  'Lokasi: memastikan Anda berada di titik absen',
+                ),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Sp.xs),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 18, color: ctx.mx.primary),
+                      const SizedBox(width: Sp.sm),
+                      Expanded(child: Text(line, style: ctx.text.bodyMedium)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: Sp.sm),
+              Text(
+                'Lokasi hanya dibaca saat MATRIX terbuka, tidak di latar belakang.',
+                style: ctx.text.bodySmall?.copyWith(color: ctx.mx.inkMuted),
+              ),
+              const SizedBox(height: Sp.xl),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Izinkan'),
+                ),
+              ),
+              const SizedBox(height: Sp.sm),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Nanti saja'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (go != true) return;
+    if (!camera.isGranted) await Permission.camera.request();
+    if (!locationOk) await Geolocator.requestPermission();
+  }
+
+  /// Panaskan GPS saat aplikasi dibuka supaya posisi di layar absen cepat
+  /// terkunci. Tidak meminta izin; diam bila izin/GPS belum ada.
+  void _warmGps() {
+    unawaited(() async {
+      try {
+        final p = await Geolocator.checkPermission();
+        if (p != LocationPermission.always &&
+            p != LocationPermission.whileInUse) {
+          return;
+        }
+        if (!await Geolocator.isLocationServiceEnabled()) return;
+        await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+      } catch (_) {
+        // Hanya pemanasan; layar absen tetap mencari posisi sendiri.
+      }
+    }());
   }
 
   /// Sekali per HP: jelaskan dulu manfaatnya, baru minta izin notifikasi Android.
@@ -299,7 +412,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               ),
               const SizedBox(height: Sp.sm),
               Text(
-                'Setelah ditinggal 5 menit, MATRIX terkunci dan meminta $name lagi. Kalau sensor tidak membaca, pakai PIN atau pola kunci HP.',
+                'Setelah tidak digunakan selama 5 menit, MATRIX terkunci dan meminta $name kembali. Bila sensor tidak terbaca, gunakan PIN atau pola kunci HP.',
                 style: ctx.text.bodyMedium?.copyWith(color: ctx.mx.inkMuted),
               ),
               const SizedBox(height: Sp.xl),
@@ -321,7 +434,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(ctx, 'pin'),
-                      child: const Text('Pakai PIN aplikasi'),
+                      child: const Text('Gunakan PIN aplikasi'),
                     ),
                   ),
                   Expanded(

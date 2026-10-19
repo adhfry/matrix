@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme/app_theme.dart';
 import '../../app/theme/tokens.dart';
 import 'finance.dart';
+import 'skeleton.dart';
 
 /// Nada status. Setiap nada selalu disertai teks/ikon, tidak hanya warna.
 enum Tone { ok, alert, pending, neutral }
@@ -281,6 +282,8 @@ class StateView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
+    // Memuat = kerangka berkilau yang menyesuaikan wadah (skeleton.dart).
+    if (busy) return SkeletonLoading(title);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -290,14 +293,7 @@ class StateView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (busy)
-              const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(strokeWidth: 3),
-              )
-            else
-              Icon(icon, size: 36, color: c.inkMuted),
+            Icon(icon, size: 36, color: c.inkMuted),
             const SizedBox(height: Sp.md),
             Text(
               title,
