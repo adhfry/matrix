@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme/app_theme.dart';
@@ -7,9 +8,8 @@ import '../../../core/clock.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/finance.dart';
-import '../../../core/widgets/ketupat.dart';
+import '../../../core/widgets/jaspel_reward.dart';
 import '../../../core/widgets/matrix_glyphs.dart';
-import '../../../core/widgets/matrix_mark.dart';
 import '../../../core/widgets/mx.dart';
 import '../../../core/widgets/shift_band.dart';
 import '../../attendance/data/attendance_models.dart';
@@ -34,6 +34,28 @@ DateTime _thisMonth() {
 
 /// Ruang bawah supaya isi tidak tertutup navigasi + tombol Absen tengah.
 const kNavClearance = 120.0;
+
+/// Seberapa jauh kartu hari ini menumpuk ke atas hero.
+const _overlap = 64.0;
+
+/// "34 jam 12 mnt": jam kerja dalam satuan yang dibaca pegawai sehari-hari.
+String _jam(int seconds) {
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  return m == 0 ? '$h jam' : '$h jam $m mnt';
+}
+
+/// Lama terlambat persis sampai detik: "1 jam 5 menit 3 detik".
+String _late(int seconds) {
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  final s = seconds % 60;
+  return [
+    if (h > 0) '$h jam',
+    if (m > 0) '$m menit',
+    if (s > 0 || seconds == 0) '$s detik',
+  ].join(' ');
+}
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -62,27 +84,27 @@ class HomeScreen extends ConsumerWidget {
               padding: EdgeInsets.zero,
               children: [
                 const _Hero(),
-                // Kartu fokus menumpuk ke atas hero (DESIGN.md §11).
+                // Kartu fokus menumpuk ke atas hero (DESIGN.md §11, §16).
                 Transform.translate(
-                  offset: const Offset(0, -56),
+                  offset: const Offset(0, -_overlap),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: Sp.gutter),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const StaggerIn(index: 0, child: _TodayCard()),
-                        const SizedBox(height: Sp.xl),
-                        StaggerIn(index: 1, child: _QuickActions()),
-                        const SizedBox(height: Sp.xl),
+                        const SizedBox(height: Sp.lg + 4),
+                        StaggerIn(index: 1, child: _Services()),
+                        const SizedBox(height: Sp.lg + 4),
                         const StaggerIn(index: 2, child: _JaspelReward()),
                         const StaggerIn(index: 3, child: _Tomorrow()),
-                        const SizedBox(height: Sp.xl),
+                        const SizedBox(height: Sp.lg + 4),
                         const StaggerIn(index: 4, child: _MonthNotes()),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: kNavClearance - 56),
+                const SizedBox(height: kNavClearance - _overlap),
               ],
             ),
           ),
@@ -91,6 +113,138 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ------------------------------------------------------------------ hero
+
+/// Hero Beranda: hijau MATRIX dengan siluet gedung Labkesda (foto fasad,
+/// duotone hijau, memudar ke kiri) dan tepi bawah bergelombang.
+class _BuildingHero extends StatelessWidget {
+  const _BuildingHero({required this.child});
+
+  final Widget child;
+
+  /// Duotone: gelap #023826 -> terang #2E8460. Ujung terang dibatasi
+  /// luminans 0,18 sehingga teks putih di atasnya tetap >= 4,5:1.
+  static const _duotone = ColorFilter.matrix([
+    0.2126 * 44 / 255, 0.7152 * 44 / 255, 0.0722 * 44 / 255, 0, 2, //
+    0.2126 * 76 / 255, 0.7152 * 76 / 255, 0.0722 * 76 / 255, 0, 56, //
+    0.2126 * 58 / 255, 0.7152 * 58 / 255, 0.0722 * 58 / 255, 0, 38, //
+    0, 0, 0, 1, 0,
+  ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    final top = MediaQuery.paddingOf(context).top;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: ClipPath(
+        clipper: _WaveClipper(),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [c.heroTop, c.heroBottom],
+            ),
+          ),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FractionallySizedBox(
+                    widthFactor: 0.62,
+                    heightFactor: 1,
+                    child: ShaderMask(
+                      blendMode: BlendMode.dstIn,
+                      shaderCallback: (r) => const LinearGradient(
+                        colors: [Colors.transparent, Colors.black],
+                        stops: [0.05, 0.55],
+                      ).createShader(r),
+                      child: Opacity(
+                        opacity: 0.55,
+                        child: ColorFiltered(
+                          colorFilter: _duotone,
+                          child: Image.asset(
+                            'assets/images/labkesda_depan.jpg',
+                            fit: BoxFit.cover,
+                            alignment: const Alignment(0.2, -0.3),
+                            cacheWidth: 720,
+                            excludeFromSemantics: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const Positioned.fill(child: CustomPaint(painter: _LightWave())),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  Sp.gutter + 4,
+                  top + Sp.lg,
+                  Sp.gutter + 4,
+                  _overlap + Sp.xxl + 8,
+                ),
+                child: DefaultTextStyle.merge(
+                  style: TextStyle(color: c.onHero),
+                  child: child,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WaveClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size s) => Path()
+    ..lineTo(0, s.height - 30)
+    ..cubicTo(
+      s.width * 0.3,
+      s.height + 4,
+      s.width * 0.64,
+      s.height - 66,
+      s.width,
+      s.height - 26,
+    )
+    ..lineTo(s.width, 0)
+    ..close();
+
+  @override
+  bool shouldReclip(_WaveClipper old) => false;
+}
+
+/// Gelombang terang tipis di kanan bawah hero.
+class _LightWave extends CustomPainter {
+  const _LightWave();
+
+  @override
+  void paint(Canvas canvas, Size s) {
+    canvas.drawPath(
+      Path()
+        ..moveTo(s.width * 0.34, s.height)
+        ..cubicTo(
+          s.width * 0.62,
+          s.height - 40,
+          s.width * 0.8,
+          s.height - 90,
+          s.width,
+          s.height - 124,
+        )
+        ..lineTo(s.width, s.height)
+        ..close(),
+      Paint()..color = Colors.white.withValues(alpha: 0.08),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LightWave old) => false;
 }
 
 /// Lonceng kotak masuk; lencana = jumlah belum dibaca (sama dengan bell web).
@@ -116,11 +270,11 @@ class _Bell extends ConsumerWidget {
             children: [
               Center(
                 child: Container(
-                  width: 44,
-                  height: 44,
+                  width: 46,
+                  height: 46,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.12),
+                    color: Colors.white.withValues(alpha: 0.14),
                   ),
                   child: Icon(
                     Icons.notifications_none_rounded,
@@ -161,7 +315,7 @@ class _Bell extends ConsumerWidget {
   }
 }
 
-/// Hero: sapaan + cincin jam kerja bulan ini (seperti saldo di aplikasi bank).
+/// Sapaan + tanggal + cincin jam kerja bulan ini (seperti saldo aplikasi bank).
 class _Hero extends ConsumerWidget {
   const _Hero();
 
@@ -176,12 +330,12 @@ class _Hero extends ConsumerWidget {
         ? 0.0
         : p.actualSeconds / p.targetSeconds;
 
-    return HeroHeader(
-      bottomPadding: 56 + Sp.xl,
+    return _BuildingHero(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
@@ -189,17 +343,23 @@ class _Hero extends ConsumerWidget {
                   children: [
                     Text(
                       '${Fmt.greeting(now)},',
-                      style: context.text.bodyMedium?.copyWith(
-                        color: c.onHeroMuted,
-                      ),
+                      style: context.text.bodyLarge?.copyWith(color: c.onHero),
                     ),
                     Text(
                       user.firstName,
-                      style: context.text.headlineSmall?.copyWith(
+                      style: context.text.headlineMedium?.copyWith(
                         color: c.onHero,
+                        fontWeight: FontWeight.w700,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      Fmt.dayLong(now),
+                      style: context.text.bodyMedium?.copyWith(
+                        color: c.onHeroMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -219,11 +379,11 @@ class _Hero extends ConsumerWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.6),
-                          width: 1.5,
+                          color: Colors.white.withValues(alpha: 0.7),
+                          width: 2,
                         ),
                       ),
-                      child: UserAvatar(user: user, size: 44),
+                      child: UserAvatar(user: user, size: 48),
                     ),
                   ),
                 ),
@@ -241,8 +401,8 @@ class _Hero extends ConsumerWidget {
                 children: [
                   RingProgress(
                     value: ratio,
-                    size: 92,
-                    stroke: 9,
+                    size: 96,
+                    stroke: 10,
                     onHero: true,
                     center: p == null
                         ? const SizedBox(
@@ -258,43 +418,48 @@ class _Hero extends ConsumerWidget {
                             format: (v) => '${v.round()}%',
                             style: context.text.titleMedium?.copyWith(
                               color: c.onHero,
+                              fontWeight: FontWeight.w700,
                               fontFeatures: tabular,
                             ),
                           ),
                   ),
-                  const SizedBox(width: Sp.lg),
+                  const SizedBox(width: Sp.lg + 4),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Jam kerja ${Fmt.monthYear(now)}',
-                          style: context.text.labelMedium?.copyWith(
-                            color: c.onHeroMuted,
+                          style: context.text.bodyMedium?.copyWith(
+                            color: c.onHero,
                           ),
                         ),
-                        const SizedBox(height: 2),
                         if (p == null)
                           Text(
                             month.hasError
-                                ? 'Gagal dimuat, tarik untuk muat ulang'
+                                ? 'Gagal dimuat. Tarik layar untuk memuat ulang.'
                                 : 'Menghitung…',
                             style: context.text.bodyMedium?.copyWith(
                               color: c.onHero,
                             ),
                           )
                         else ...[
-                          CountUp(
-                            value: p.actualSeconds.toDouble(),
-                            format: (v) => Fmt.hm(v.round()),
-                            style: context.text.displaySmall?.copyWith(
-                              color: c.onHero,
-                              fontSize: 30,
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: CountUp(
+                              value: p.actualSeconds.toDouble(),
+                              format: (v) => _jam(v.round()),
+                              style: context.text.displaySmall?.copyWith(
+                                color: c.onHero,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 32,
+                              ),
                             ),
                           ),
                           Text(
-                            'dari target ${Fmt.hm(p.targetSeconds)}',
-                            style: context.text.bodySmall?.copyWith(
+                            'dari target ${_jam(p.targetSeconds)}',
+                            style: context.text.bodyMedium?.copyWith(
                               color: c.onHeroMuted,
                             ),
                           ),
@@ -302,7 +467,6 @@ class _Hero extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  Icon(Icons.chevron_right_rounded, color: c.onHeroMuted),
                 ],
               ),
             ),
@@ -313,7 +477,9 @@ class _Hero extends ConsumerWidget {
   }
 }
 
-/// Kartu fokus: shift hari ini, pita shift, dan satu tombol absen.
+// ------------------------------------------------------------ hari ini
+
+/// Kartu fokus: shift hari ini, pita shift, ringkasan check-in/out, satu tombol.
 class _TodayCard extends ConsumerWidget {
   const _TodayCard();
 
@@ -362,6 +528,7 @@ class _TodayCard extends ConsumerWidget {
         }
         final shift = cfg.shift;
         final group = shiftGroupOf(shift?.code);
+        final hue = shiftHue(context, group);
         final w = shift?.windowsOn(cfg.scheduleDate ?? DateTime.now());
         final rawIn = cfg.ongoingCheckIn ?? today?.checkIn;
         // Sesi terbuka >20 jam = sesi lama yang belum ditutup sistem; jangan tampilkan timer berjalan.
@@ -378,18 +545,23 @@ class _TodayCard extends ConsumerWidget {
                   ? group.short
                   : shift.name);
         final showBand = w != null && !(shift?.isOff ?? false);
+        final now = DateTime.now();
 
         return MxCard(
+          padding: const EdgeInsets.all(Sp.lg + 2),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  IconBadge(
-                    group.icon,
-                    size: 44,
-                    background: shiftHue(context, group).bg,
-                    color: shiftHue(context, group).fg,
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: hue.bg,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(group.icon, color: hue.fg, size: 26),
                   ),
                   const SizedBox(width: Sp.md),
                   Expanded(
@@ -397,15 +569,17 @@ class _TodayCard extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Hari ini · ${Fmt.dayMedium(DateTime.now())}',
-                          style: context.text.labelSmall?.copyWith(
+                          'Hari ini · ${Fmt.dayMedium(now)}',
+                          style: context.text.labelMedium?.copyWith(
                             color: c.inkMuted,
                           ),
                         ),
                         Text(
                           shiftTitle ??
                               (cfg.isFlexi ? 'Siap absen' : 'Tidak ada jadwal'),
-                          style: context.text.titleMedium,
+                          style: context.text.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -413,10 +587,33 @@ class _TodayCard extends ConsumerWidget {
                     ),
                   ),
                   if (showBand)
-                    Text(
-                      '${Fmt.timeOf(w.workStart)}–${Fmt.timeOf(w.workEnd)}',
-                      style: context.text.titleSmall?.copyWith(
-                        fontFeatures: tabular,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Sp.md,
+                        vertical: Sp.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.primaryContainer,
+                        borderRadius: BorderRadius.circular(Radii.control),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.schedule_rounded,
+                            size: 16,
+                            color: c.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${Fmt.timeOf(w.workStart)}–${Fmt.timeOf(w.workEnd)}',
+                            style: context.text.labelLarge?.copyWith(
+                              color: c.ink,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: tabular,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                 ],
@@ -434,32 +631,46 @@ class _TodayCard extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        'Check-in ${Fmt.timeOf(w.inStart)}–${Fmt.timeOf(w.inEnd)}',
+                        'IN ${Fmt.timeOf(w.inStart)}–${Fmt.timeOf(w.inEnd)}',
                         style: context.text.bodySmall,
                       ),
                     ),
                     Text(
-                      'Check-out ${Fmt.timeOf(w.outStart)}–${Fmt.timeOf(w.outEnd)}',
+                      'OUT ${Fmt.timeOf(w.outStart)}–${Fmt.timeOf(w.outEnd)}',
                       style: context.text.bodySmall,
                     ),
                   ],
                 ),
               ],
-              const SizedBox(height: Sp.lg),
-              if (staleIn != null)
-                _Note(
-                  icon: Icons.history_toggle_off_rounded,
-                  tone: Tone.pending,
-                  text:
-                      'Check-in ${Fmt.dayMedium(staleIn)} pukul ${Fmt.timeOf(staleIn)} belum ditutup. Sistem menutupnya otomatis sebagai lupa check-out; hubungi admin bila ada kendala.',
-                )
-              else
-                _StatusLine(
-                  gate: gate,
+              if (checkIn != null) ...[
+                const SizedBox(height: Sp.lg),
+                _TodayStats(
                   checkIn: checkIn,
                   checkOut: today?.checkOut,
                   lateSeconds: today?.lateSeconds ?? 0,
                 ),
+                // Keterangan terlambat sewarna bagian kuning pita shift.
+                if ((today?.lateSeconds ?? 0) > 0 && w != null) ...[
+                  const SizedBox(height: Sp.md),
+                  _StatusBar(
+                    tone: Tone.pending,
+                    icon: Icons.schedule_rounded,
+                    hue: context.hues.gold,
+                    text:
+                        'Terlambat ${_late(today!.lateSeconds)} dari jadwal masuk ${Fmt.timeOf(w.workStart)}.',
+                  ),
+                ],
+              ],
+              const SizedBox(height: Sp.md),
+              if (staleIn != null)
+                _StatusBar(
+                  tone: Tone.pending,
+                  icon: Icons.history_toggle_off_rounded,
+                  text:
+                      'Check-in ${Fmt.dayMedium(staleIn)} pukul ${Fmt.timeOf(staleIn)} belum ditutup. Sistem menutupnya otomatis sebagai lupa check-out; hubungi admin bila ada kendala.',
+                )
+              else
+                _GateStatus(gate: gate),
               if (gate.canAttend) ...[
                 const SizedBox(height: Sp.lg),
                 SizedBox(
@@ -467,7 +678,12 @@ class _TodayCard extends ConsumerWidget {
                   child: FilledButton.icon(
                     onPressed: () =>
                         launchAttendance(context, ref, config: cfg),
-                    icon: const Icon(Icons.camera_front_rounded),
+                    icon: MxGlyphIcon(
+                      MxGlyph.absen,
+                      color: c.onPrimary,
+                      accent: c.onPrimary,
+                      size: 22,
+                    ),
                     label: Text(
                       cfg.isCheckOut
                           ? 'Check-out sekarang'
@@ -524,175 +740,202 @@ class _LiveBand extends ConsumerWidget {
   }
 }
 
-/// Satu kalimat keadaan + timer jam kerja yang berjalan saat sedang bekerja.
-class _StatusLine extends ConsumerWidget {
-  const _StatusLine({
-    required this.gate,
-    this.checkIn,
+/// Tiga sel: durasi kerja (berjalan), jam check-in, jam check-out.
+/// Check-out memakai warna kategori langit, bukan merah (merah = masalah, §2).
+class _TodayStats extends ConsumerWidget {
+  const _TodayStats({
+    required this.checkIn,
     this.checkOut,
     this.lateSeconds = 0,
   });
 
-  final Gate gate;
-  final DateTime? checkIn;
+  final DateTime checkIn;
   final DateTime? checkOut;
   final int lateSeconds;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.mx;
+    final h = context.hues;
     final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final working = checkIn != null && checkOut == null;
-    final t = gateText(gate, now);
+    final working = checkOut == null;
+    final seconds = (checkOut ?? now).difference(checkIn).inSeconds;
 
-    return Column(
+    Widget cell({
+      required IconData icon,
+      required Hue hue,
+      required String label,
+      required Widget value,
+      Widget? extra,
+    }) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (checkIn != null) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      working ? 'Durasi kerja berjalan' : 'Durasi kerja',
-                      style: context.text.labelSmall?.copyWith(
-                        color: c.inkMuted,
-                      ),
-                    ),
-                    Semantics(
-                      label:
-                          '${working ? 'Durasi kerja berjalan' : 'Durasi kerja'} ${Fmt.hmLong((checkOut ?? now).difference(checkIn!).inSeconds)}',
-                      excludeSemantics: true,
-                      child: Text(
-                        Fmt.clock(
-                          (checkOut ?? now).difference(checkIn!).inSeconds,
-                        ),
-                        style: context.text.displaySmall,
-                      ),
-                    ),
-                  ],
+        Row(
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: hue.bg,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 16, color: hue.fg),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.labelSmall?.copyWith(color: c.inkMuted),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Sp.xs),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: value,
+        ),
+        ?extra,
+      ],
+    );
+
+    Widget divider() => Container(
+      width: 1,
+      height: 40,
+      margin: const EdgeInsets.symmetric(horizontal: Sp.sm),
+      color: c.line,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(Sp.md),
+      decoration: BoxDecoration(
+        color: c.canvas,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 14,
+            child: Semantics(
+              label:
+                  '${working ? 'Durasi kerja berjalan' : 'Durasi kerja'} ${Fmt.hmLong(seconds)}',
+              excludeSemantics: true,
+              child: cell(
+                icon: Icons.timer_outlined,
+                hue: Hue(c.primary, c.primaryContainer),
+                label: 'Durasi kerja',
+                value: Text(
+                  Fmt.clock(seconds),
+                  style: context.text.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: tabular,
+                  ),
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    'Check-in ${Fmt.timeOf(checkIn!)}',
-                    style: context.text.labelMedium?.copyWith(
-                      fontFeatures: tabular,
-                    ),
-                  ),
-                  if (checkOut != null)
-                    Text(
-                      'Check-out ${Fmt.timeOf(checkOut!)}',
-                      style: context.text.labelMedium?.copyWith(
-                        fontFeatures: tabular,
-                      ),
-                    ),
-                  if (lateSeconds > 0) ...[
-                    const SizedBox(height: 4),
-                    StatusPill(
-                      'Telat ${Fmt.hm(lateSeconds)}',
-                      tone: Tone.alert,
-                      dense: true,
-                    ),
-                  ],
-                ],
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: Sp.md),
+          divider(),
+          Expanded(
+            flex: 10,
+            child: cell(
+              icon: Icons.login_rounded,
+              hue: Hue(c.primary, c.primaryContainer),
+              label: 'IN',
+              value: Text(
+                Fmt.timeOf(checkIn),
+                style: context.text.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: tabular,
+                ),
+              ),
+            ),
+          ),
+          divider(),
+          Expanded(
+            flex: 10,
+            child: cell(
+              icon: Icons.logout_rounded,
+              hue: h.sky,
+              label: 'OUT',
+              value: Text(
+                checkOut == null ? 'Belum' : Fmt.timeOf(checkOut!),
+                style: context.text.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: tabular,
+                  color: checkOut == null ? c.inkMuted : c.ink,
+                ),
+              ),
+            ),
+          ),
         ],
-        _Note(
-          icon: switch (t.tone) {
-            Tone.ok => Icons.check_circle_outline_rounded,
-            Tone.alert => Icons.error_outline_rounded,
-            Tone.pending => Icons.schedule_rounded,
-            Tone.neutral => Icons.info_outline_rounded,
-          },
-          tone: t.tone,
-          text: t.text,
-        ),
-      ],
+      ),
     );
   }
 }
 
-/// Layanan pegawai: panel dengan ornamen pita logo MATRIX (DESIGN.md §15) dan
-/// ikon MATRIX buatan sendiri di ubin berbentuk daun.
-class _QuickActions extends ConsumerWidget {
+/// Kalimat keadaan absen (hitung mundur berjalan tiap detik).
+class _GateStatus extends ConsumerWidget {
+  const _GateStatus({required this.gate});
+  final Gate gate;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    void push(Widget w) =>
-        Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => w));
+    final now = ref.watch(clockProvider).value ?? DateTime.now();
+    final t = gateText(gate, now);
+    return _StatusBar(
+      tone: t.tone,
+      icon: switch (t.tone) {
+        Tone.ok => Icons.check_circle_rounded,
+        Tone.alert => Icons.error_rounded,
+        Tone.pending => Icons.schedule_rounded,
+        Tone.neutral => Icons.info_rounded,
+      },
+      text: t.text,
+    );
+  }
+}
+
+class _StatusBar extends StatelessWidget {
+  const _StatusBar({
+    required this.tone,
+    required this.icon,
+    required this.text,
+    this.hue,
+  });
+  final Tone tone;
+  final IconData icon;
+  final String text;
+
+  /// Warna kategori pengganti nada (mis. emas untuk keterlambatan).
+  final Hue? hue;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.mx;
-    final h = context.hues;
-    final radius = BorderRadius.circular(Radii.hero);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: radius,
-        border: Theme.of(context).brightness == Brightness.dark
-            ? Border.all(color: c.line)
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Stack(
+    final fg = hue?.fg ?? (tone == Tone.neutral ? c.inkMuted : tone.fg(c));
+    final bg = hue?.bg ?? (tone == Tone.neutral ? c.canvas : tone.bg(c));
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: Sp.md, vertical: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(Radii.control),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Positioned(
-              right: -30,
-              top: -58,
-              child: MatrixMark(
-                size: 140,
-                mono: c.primary.withValues(alpha: 0.07),
-              ),
-            ),
-            const Positioned.fill(child: CustomPaint(painter: _RibbonWave())),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(Sp.lg, Sp.lg, Sp.lg, Sp.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Layanan pegawai', style: context.text.titleSmall),
-                  const SizedBox(height: Sp.md),
-                  Row(
-                    children: [
-                      _MxAction(
-                        glyph: MxGlyph.absen,
-                        label: 'Absen',
-                        hue: Hue(c.onPrimary, c.primary),
-                        // Emas muda di hijau tua (terang); merah tua di hijau muda (gelap).
-                        accent: Theme.of(context).brightness == Brightness.dark
-                            ? const Color(0xFF7A1424)
-                            : RewardColors.glint,
-                        onTap: () => launchAttendance(context, ref),
-                      ),
-                      _MxAction(
-                        glyph: MxGlyph.izin,
-                        label: 'Izin & cuti',
-                        hue: h.purple,
-                        onTap: () => push(const LeaveScreen()),
-                      ),
-                      _MxAction(
-                        glyph: MxGlyph.ktp,
-                        label: 'Pasien KTP',
-                        hue: h.sky,
-                        onTap: () => push(const ScanHomeScreen()),
-                      ),
-                      _MxAction(
-                        glyph: MxGlyph.jaspel,
-                        label: 'Jaspel',
-                        hue: h.gold,
-                        onTap: () =>
-                            ref.read(tabProvider.notifier).go(Tabs.kinerja),
-                      ),
-                    ],
-                  ),
-                ],
+            Icon(icon, size: 20, color: fg),
+            const SizedBox(width: Sp.sm),
+            Expanded(
+              child: Text(
+                text,
+                style: context.text.bodyMedium?.copyWith(color: fg),
               ),
             ),
           ],
@@ -702,100 +945,132 @@ class _QuickActions extends ConsumerWidget {
   }
 }
 
-/// Gelombang pita hijau -> emas -> merah tipis di dasar panel, mengulang
-/// goresan pita pada splash.
-class _RibbonWave extends CustomPainter {
-  const _RibbonWave();
+// ---------------------------------------------------------------- layanan
 
+/// Layanan pegawai: kartu putih berisi empat ubin berwarna kategori (§12),
+/// ikon MATRIX buatan sendiri, judul + keterangan singkat.
+class _Services extends ConsumerWidget {
   @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final p = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 12
-      ..strokeCap = StrokeCap.round
-      ..shader = LinearGradient(
-        colors: [
-          const Color(0xFF12AE78).withValues(alpha: 0.10),
-          const Color(0xFFF0A92A).withValues(alpha: 0.12),
-          const Color(0xFFCB213D).withValues(alpha: 0.10),
+  Widget build(BuildContext context, WidgetRef ref) {
+    void push(Widget w) =>
+        Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => w));
+    final c = context.mx;
+    final h = context.hues;
+    return MxCard(
+      padding: const EdgeInsets.fromLTRB(Sp.lg, Sp.lg, Sp.lg, Sp.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Layanan pegawai',
+            style: context.text.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: Sp.md),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _ServiceTile(
+                glyph: MxGlyph.absen,
+                title: 'Absen',
+                subtitle: 'Check-in & check-out',
+                hue: Hue(c.primary, c.primaryContainer),
+                onTap: () => launchAttendance(context, ref),
+              ),
+              const SizedBox(width: Sp.sm),
+              _ServiceTile(
+                glyph: MxGlyph.izin,
+                title: 'Izin & cuti',
+                subtitle: 'Pengajuan & riwayat',
+                hue: h.purple,
+                onTap: () => push(const LeaveScreen()),
+              ),
+              const SizedBox(width: Sp.sm),
+              _ServiceTile(
+                glyph: MxGlyph.pasien,
+                title: 'Pasien',
+                subtitle: 'Daftar dari foto KTP',
+                hue: h.sky,
+                onTap: () => push(const ScanHomeScreen()),
+              ),
+              const SizedBox(width: Sp.sm),
+              _ServiceTile(
+                glyph: MxGlyph.jaspel,
+                title: 'Jaspel',
+                subtitle: 'Rincian & klaim',
+                hue: h.gold,
+                onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
+              ),
+            ],
+          ),
         ],
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(
-      Path()
-        ..moveTo(-10, h * 0.9)
-        ..cubicTo(w * 0.3, h * 0.62, w * 0.55, h * 1.12, w + 10, h * 0.7),
-      p,
+      ),
     );
   }
-
-  @override
-  bool shouldRepaint(_RibbonWave old) => false;
 }
 
-class _MxAction extends StatelessWidget {
-  const _MxAction({
+class _ServiceTile extends StatelessWidget {
+  const _ServiceTile({
     required this.glyph,
-    required this.label,
+    required this.title,
+    required this.subtitle,
     required this.hue,
     required this.onTap,
-    this.accent,
   });
 
   final MxGlyph glyph;
-  final String label;
+  final String title;
+  final String subtitle;
   final Hue hue;
   final VoidCallback onTap;
-  final Color? accent;
-
-  /// Ubin "daun": sudut kiri-atas & kanan-bawah lebar, dua lainnya sempit,
-  /// meniru lipatan pita pada logo.
-  static const _leaf = BorderRadius.only(
-    topLeft: Radius.circular(22),
-    topRight: Radius.circular(8),
-    bottomRight: Radius.circular(22),
-    bottomLeft: Radius.circular(8),
-  );
 
   @override
   Widget build(BuildContext context) {
+    final c = context.mx;
     return Expanded(
       child: Semantics(
         button: true,
-        label: label,
+        label: '$title, $subtitle',
         excludeSemantics: true,
         child: PressScale(
           onTap: onTap,
           child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(Radii.control),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            borderRadius: BorderRadius.circular(16),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: Sp.xs),
+              padding: const EdgeInsets.only(bottom: Sp.xs),
               child: Column(
                 children: [
                   Container(
-                    width: 60,
-                    height: 60,
+                    height: 64,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: hue.bg,
-                      borderRadius: _leaf,
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: MxGlyphIcon(
-                      glyph,
-                      color: hue.fg,
-                      accent: accent,
-                      size: 30,
-                    ),
+                    child: MxGlyphIcon(glyph, color: hue.fg, size: 32),
                   ),
                   const SizedBox(height: Sp.sm),
                   Text(
-                    label,
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: c.ink,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
                     textAlign: TextAlign.center,
                     maxLines: 2,
-                    style: context.text.labelMedium?.copyWith(
-                      color: context.mx.ink,
-                      height: 1.2,
+                    style: context.text.labelSmall?.copyWith(
+                      color: c.inkMuted,
+                      height: 1.25,
                     ),
                   ),
                 ],
@@ -808,8 +1083,9 @@ class _MxAction extends StatelessWidget {
   }
 }
 
-/// Jaspel yang sudah dipublikasikan dan belum diklaim, tampil sebagai voucher
-/// emas (DESIGN.md §15): ini satu-satunya kabar "hadiah" di Beranda.
+// ------------------------------------------------------------------ jaspel
+
+/// Jaspel yang sudah dipublikasikan dan belum diklaim (§16).
 class _JaspelReward extends ConsumerWidget {
   const _JaspelReward();
 
@@ -829,78 +1105,19 @@ class _JaspelReward extends ConsumerWidget {
       ref.read(tabProvider.notifier).go(Tabs.kinerja);
     }
 
-    final onGold = context.text.bodySmall?.copyWith(
-      color: Colors.white.withValues(alpha: 0.86),
-    );
     return Padding(
-      padding: const EdgeInsets.only(bottom: Sp.xl),
+      padding: const EdgeInsets.only(bottom: Sp.lg + 4),
       child: Semantics(
-        container: true,
+        button: true,
         label: 'Jaspel siap diklaim, ${Fmt.rupiah(total)}, $period',
+        excludeSemantics: true,
         child: PressScale(
           onTap: open,
-          child: GestureDetector(
+          child: JaspelRewardCard(
+            title: 'Jaspel siap diklaim',
+            amount: CountUp(value: total, format: (v) => Fmt.rupiah(v)),
+            subtitle: period,
             onTap: open,
-            child: RewardSurface(
-              top: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Jaspel siap diklaim',
-                          style: context.text.labelLarge?.copyWith(
-                            color: RewardColors.glint,
-                          ),
-                        ),
-                        const SizedBox(height: Sp.xs),
-                        CountUp(
-                          value: total,
-                          format: (v) => Fmt.rupiah(v),
-                          style: context.text.headlineMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: tabular,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(period, style: onGold),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: Sp.md),
-                  KetupatBadge(
-                    Icons.workspace_premium_rounded,
-                    size: 56,
-                    background: Colors.white.withValues(alpha: 0.16),
-                    color: RewardColors.glint,
-                    woven: true,
-                  ),
-                ],
-              ),
-              bottom: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Dibayarkan setelah disetujui admin.',
-                      style: onGold,
-                    ),
-                  ),
-                  const SizedBox(width: Sp.md),
-                  FilledButton(
-                    onPressed: open,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: RewardColors.top,
-                      minimumSize: const Size(0, 44),
-                      padding: const EdgeInsets.symmetric(horizontal: Sp.lg),
-                    ),
-                    child: const Text('Klaim sekarang'),
-                  ),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -908,8 +1125,9 @@ class _JaspelReward extends ConsumerWidget {
   }
 }
 
-/// Jadwal besok: bidang berwarna shift (tanpa bayangan) supaya terbaca sebagai
-/// informasi pendamping, bukan kartu aksi seperti kartu hari ini.
+// ----------------------------------------------------- besok & catatan
+
+/// Jadwal besok: satu baris supaya pegawai tahu shift berikutnya tanpa membuka Jadwal.
 class _Tomorrow extends ConsumerWidget {
   const _Tomorrow();
 
@@ -918,6 +1136,7 @@ class _Tomorrow extends ConsumerWidget {
     final t = ref.watch(todayActivityProvider).value;
     final s = t?.tomorrowShift;
     if (t == null) return const SizedBox.shrink();
+    final c = context.mx;
     final g = shiftGroupOf(s?.code);
     final hue = shiftHue(context, g);
     final label = s == null
@@ -926,71 +1145,61 @@ class _Tomorrow extends ConsumerWidget {
     final time = s == null || !g.isWork
         ? null
         : '${Fmt.time(s.workStart ?? s.checkInEnd)}–${Fmt.time(s.workEnd ?? s.checkOutStart)}';
-    final radius = BorderRadius.circular(Radii.card);
-    return Semantics(
-      button: true,
-      label: 'Jadwal besok: $label${time == null ? '' : ', $time'}',
-      excludeSemantics: true,
-      child: PressScale(
-        onTap: () => ref.read(tabProvider.notifier).go(Tabs.schedule),
-        child: Material(
-          color: hue.bg,
-          borderRadius: radius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => ref.read(tabProvider.notifier).go(Tabs.schedule),
-            child: Stack(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Sp.lg,
-                    vertical: Sp.md,
-                  ),
-                  child: Row(
-                    children: [
-                      IconBadge(
-                        g.icon,
-                        size: 44,
-                        background: context.mx.surface,
-                        color: hue.fg,
-                      ),
-                      const SizedBox(width: Sp.md),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Jadwal besok',
-                              style: context.text.labelSmall?.copyWith(
-                                color: hue.fg,
-                              ),
-                            ),
-                            Text(label, style: context.text.titleSmall),
-                          ],
-                        ),
-                      ),
-                      if (time != null)
-                        Text(
-                          time,
-                          style: context.text.titleSmall?.copyWith(
-                            color: hue.fg,
-                            fontFeatures: tabular,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+    return MxCard(
+      onTap: () => ref.read(tabProvider.notifier).go(Tabs.schedule),
+      semanticLabel: 'Jadwal besok: $label${time == null ? '' : ', $time'}',
+      padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
+      child: ExcludeSemantics(
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: hue.bg,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(g.icon, color: hue.fg),
             ),
-          ),
+            const SizedBox(width: Sp.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Jadwal besok',
+                    style: context.text.labelMedium?.copyWith(
+                      color: c.inkMuted,
+                    ),
+                  ),
+                  Text(
+                    label,
+                    style: context.text.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (time != null)
+              Text(
+                time,
+                style: context.text.titleSmall?.copyWith(
+                  color: hue.fg,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: tabular,
+                ),
+              ),
+            const SizedBox(width: Sp.xs),
+            Icon(Icons.chevron_right_rounded, color: c.inkMuted),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Catatan disiplin bulan ini (tanpa rupiah). Kartu datar bergaris tipis:
-/// tingkat elevasi paling rendah di Beranda.
+/// Catatan disiplin bulan ini (tanpa rupiah).
 class _MonthNotes extends ConsumerWidget {
   const _MonthNotes();
 
@@ -1016,6 +1225,7 @@ class _MonthNotes extends ConsumerWidget {
                 value,
                 style: context.text.titleSmall?.copyWith(
                   color: bad ? c.alert : c.ink,
+                  fontWeight: FontWeight.w700,
                   fontFeatures: tabular,
                 ),
               ),
@@ -1028,92 +1238,67 @@ class _MonthNotes extends ConsumerWidget {
           ),
         );
 
-    final radius = BorderRadius.circular(Radii.card);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionTitle(
-          'Catatan disiplin ${Fmt.monthYear(_thisMonth())}',
-          subtitle: p.issueCount == 0
-              ? 'Belum ada catatan pelanggaran bulan ini.'
-              : 'Ketuk untuk melihat rinciannya.',
-        ),
-        Material(
-          color: c.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: radius,
-            side: BorderSide(color: c.line),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: Sp.lg,
-                horizontal: Sp.sm,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  item(
-                    Icons.login_rounded,
-                    'Terlambat',
-                    '${p.lateCount} kali',
-                    p.lateCount > 0,
-                  ),
-                  item(
-                    Icons.logout_rounded,
-                    'Pulang awal',
-                    '${p.earlyCount} kali',
-                    p.earlyCount > 0,
-                  ),
-                  item(
-                    Icons.timer_off_outlined,
-                    'Lupa check‑out',
-                    '${p.noCheckoutCount} kali',
-                    p.noCheckoutCount > 0,
-                  ),
-                  item(
-                    Icons.person_off_outlined,
-                    'Alpa',
-                    '${p.alphaCount} hari',
-                    p.alphaCount > 0,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Note extends StatelessWidget {
-  const _Note({required this.icon, required this.tone, required this.text});
-  final IconData icon;
-  final Tone tone;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.mx;
-    final color = tone == Tone.neutral ? c.inkMuted : tone.fg(c);
-    return Semantics(
-      liveRegion: true,
-      child: Row(
+    return MxCard(
+      onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
+      padding: const EdgeInsets.fromLTRB(Sp.lg, Sp.lg, Sp.lg, Sp.lg),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(icon, size: 18, color: color),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Catatan disiplin ${Fmt.monthYear(_thisMonth())}',
+                      style: context.text.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      p.issueCount == 0
+                          ? 'Belum ada catatan pelanggaran bulan ini.'
+                          : 'Ketuk untuk melihat rinciannya.',
+                      style: context.text.bodySmall?.copyWith(
+                        color: c.inkMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: c.inkMuted),
+            ],
           ),
-          const SizedBox(width: Sp.sm),
-          Expanded(
-            child: Text(
-              text,
-              style: context.text.bodyMedium?.copyWith(color: color),
-            ),
+          const SizedBox(height: Sp.lg),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              item(
+                Icons.login_rounded,
+                'Terlambat',
+                '${p.lateCount} kali',
+                p.lateCount > 0,
+              ),
+              item(
+                Icons.logout_rounded,
+                'Pulang awal',
+                '${p.earlyCount} kali',
+                p.earlyCount > 0,
+              ),
+              item(
+                Icons.timer_off_outlined,
+                'Lupa check‑out',
+                '${p.noCheckoutCount} kali',
+                p.noCheckoutCount > 0,
+              ),
+              item(
+                Icons.person_off_outlined,
+                'Alpa',
+                '${p.alphaCount} hari',
+                p.alphaCount > 0,
+              ),
+            ],
           ),
         ],
       ),

@@ -8,14 +8,17 @@ enum MxGlyph {
   /// Bingkai pindai + wajah; pita aksen = bahu (orang yang absen).
   absen,
 
-  /// Kalender + centang pita (pengajuan disetujui).
+  /// Lembar pengajuan + pena; pita aksen = pena (menandatangani pengajuan).
   izin,
 
-  /// Kartu identitas + foto; pita aksen = baris data yang dibaca.
-  ktp,
+  /// Orang + tanda tambah; pita aksen = tanda tambah (mendaftarkan pasien).
+  pasien,
 
-  /// Amplop jaspel dengan tutup berbentuk "V" lembah huruf M.
+  /// Kuitansi bergerigi bertuliskan "Rp"; pita aksen = "Rp".
   jaspel,
+
+  /// Dompet; pita aksen = kancing (dipakai di kartu jaspel siap diklaim).
+  dompet,
 }
 
 class MxGlyphIcon extends StatelessWidget {
@@ -32,7 +35,8 @@ class MxGlyphIcon extends StatelessWidget {
   /// Warna garis utama.
   final Color color;
 
-  /// Warna pita aksen; null = gradien jingga-merah logo.
+  /// Warna pita aksen; null = gradien jingga-merah logo (versi terang di
+  /// mode gelap).
   final Color? accent;
   final double size;
 
@@ -71,16 +75,18 @@ class _GlyphPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final k = size.width / 24;
     Offset o(double x, double y) => Offset(x * k, y * k);
+    Rect r(double l, double t, double rr, double b) =>
+        Rect.fromLTRB(l * k, t * k, rr * k, b * k);
 
     final main = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.1 * k
+      ..strokeWidth = 2 * k
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     final rib = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.6 * k
+      ..strokeWidth = 2.5 * k
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     if (accent != null) {
@@ -90,6 +96,9 @@ class _GlyphPainter extends CustomPainter {
         colors: ribbon,
       ).createShader(Offset.zero & size);
     }
+    final ribFill = Paint()
+      ..style = PaintingStyle.fill
+      ..color = accent ?? ribbon.last;
 
     Path poly(List<Offset> pts) {
       final p = Path()..moveTo(pts.first.dx, pts.first.dy);
@@ -117,43 +126,84 @@ class _GlyphPainter extends CustomPainter {
           rib,
         );
       case MxGlyph.izin:
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTRB(3.5 * k, 5 * k, 20.5 * k, 20.5 * k),
-            Radius.circular(3.2 * k),
-          ),
+        // Lembar dengan sudut terlipat.
+        canvas.drawPath(
+          poly([o(14, 2.8), o(6, 2.8), o(4.2, 4.6), o(4.2, 21.2)])
+            ..lineTo(15.8 * k, 21.2 * k),
           main,
         );
-        canvas.drawLine(o(8, 3), o(8, 6.6), main);
-        canvas.drawLine(o(16, 3), o(16, 6.6), main);
-        canvas.drawPath(poly([o(8.4, 13.6), o(11, 16.2), o(15.8, 11)]), rib);
-      case MxGlyph.ktp:
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTRB(2.5 * k, 5.5 * k, 21.5 * k, 18.5 * k),
-            Radius.circular(3 * k),
-          ),
-          main,
-        );
-        canvas.drawCircle(o(8.2, 10.6), 2 * k, main);
+        canvas.drawPath(poly([o(14, 2.8), o(18.6, 7.4), o(18.6, 10)]), main);
+        canvas.drawLine(o(8, 9), o(13, 9), main);
+        canvas.drawLine(o(8, 13), o(11.5, 13), main);
+        // Pena miring menulis di pojok kanan bawah.
+        canvas.drawLine(o(13.6, 19.4), o(20.4, 12.6), rib);
+        canvas.drawLine(o(12.6, 20.4), o(13.2, 19.8), rib);
+      case MxGlyph.pasien:
+        canvas.drawCircle(o(9.5, 7.6), 3.6 * k, main);
         canvas.drawPath(
           Path()
-            ..moveTo(5.4 * k, 15.6 * k)
-            ..quadraticBezierTo(8.2 * k, 12.6 * k, 11 * k, 15.6 * k),
+            ..moveTo(3 * k, 20.6 * k)
+            ..cubicTo(3 * k, 15.4 * k, 6.4 * k, 13.4 * k, 9.5 * k, 13.4 * k)
+            ..cubicTo(
+              11.2 * k,
+              13.4 * k,
+              12.6 * k,
+              13.8 * k,
+              13.6 * k,
+              14.6 * k,
+            ),
           main,
         );
-        canvas.drawLine(o(14, 10), o(18.6, 10), rib);
-        canvas.drawLine(o(14, 14), o(17, 14), main);
+        canvas.drawLine(o(18, 13.4), o(18, 21), rib);
+        canvas.drawLine(o(14.2, 17.2), o(21.8, 17.2), rib);
       case MxGlyph.jaspel:
+        // Kuitansi dengan tepi bawah bergerigi.
+        final receipt = Path()
+          ..moveTo(5 * k, 21 * k)
+          ..lineTo(5 * k, 4.6 * k)
+          ..quadraticBezierTo(5 * k, 3 * k, 6.6 * k, 3 * k)
+          ..lineTo(17.4 * k, 3 * k)
+          ..quadraticBezierTo(19 * k, 3 * k, 19 * k, 4.6 * k)
+          ..lineTo(19 * k, 21 * k);
+        for (var x = 19.0; x > 5; x -= 3.5) {
+          receipt
+            ..lineTo((x - 1.75) * k, 19.4 * k)
+            ..lineTo((x - 3.5) * k, 21 * k);
+        }
+        canvas.drawPath(receipt, main);
+        final tp = TextPainter(
+          text: TextSpan(
+            text: 'Rp',
+            style: TextStyle(
+              fontSize: 7.4 * k,
+              fontWeight: FontWeight.w800,
+              height: 1,
+              foreground: Paint()
+                ..shader = rib.shader
+                ..color = rib.color,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(canvas, Offset(12 * k - tp.width / 2, 6.4 * k));
+        canvas.drawLine(o(8.4, 16), o(15.6, 16), main);
+      case MxGlyph.dompet:
         canvas.drawRRect(
           RRect.fromRectAndRadius(
-            Rect.fromLTRB(2.5 * k, 5.5 * k, 21.5 * k, 19 * k),
+            r(2.8, 6.4, 21.2, 20),
             Radius.circular(3 * k),
           ),
           main,
         );
-        // Tutup amplop = lembah "V" huruf M.
-        canvas.drawPath(poly([o(4, 7.4), o(12, 13.2), o(20, 7.4)]), rib);
+        canvas.drawPath(poly([o(5, 6.4), o(15.4, 3), o(17, 6.4)]), main);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            r(14.4, 10.6, 21.2, 15.8),
+            Radius.circular(2 * k),
+          ),
+          main,
+        );
+        canvas.drawCircle(o(17.4, 13.2), 1.3 * k, ribFill);
     }
   }
 

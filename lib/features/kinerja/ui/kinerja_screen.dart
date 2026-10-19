@@ -6,7 +6,7 @@ import '../../../app/theme/tokens.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/finance.dart';
-import '../../../core/widgets/ketupat.dart';
+import '../../../core/widgets/jaspel_reward.dart';
 import '../../../core/widgets/month_switcher.dart';
 import '../../../core/widgets/mx.dart';
 import '../data/kinerja_models.dart';
@@ -337,61 +337,34 @@ class _JaspelCardState extends ConsumerState<_JaspelCard> {
       ),
     );
 
-    // Siap diklaim: voucher emas yang sama dengan Beranda (DESIGN.md §15).
+    // Siap diklaim: kartu jaspel yang sama dengan Beranda (DESIGN.md §16).
     if (p.status == 'Pending') {
-      final onGold = context.text.bodySmall?.copyWith(
-        color: Colors.white.withValues(alpha: 0.86),
-      );
-      return RewardSurface(
-        top: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      return JaspelRewardCard(
+        title: 'Jaspel ${Fmt.monthYear(widget.k.month)} siap diklaim',
+        amount: CountUp(value: p.finalSalary, format: (v) => Fmt.rupiah(v)),
+        subtitle: p.totalDeductions > 0
+            ? 'Remunerasi ${Fmt.rupiah(p.totalAllowances)} dikurangi potongan ${Fmt.rupiah(p.totalDeductions)}'
+            : 'Dibayarkan setelah disetujui admin.',
+        // "Rincian" di kiri (latar hijau tua), tombol putih di kanan.
+        actions: Row(
           children: [
-            Text(
-              'Jaspel ${Fmt.monthYear(widget.k.month)} siap diklaim',
-              style: context.text.labelLarge?.copyWith(
-                color: RewardColors.glint,
+            TextButton(
+              onPressed: openDetail,
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 44),
               ),
+              child: const Text('Rincian & slip'),
             ),
-            const SizedBox(height: Sp.xs),
-            CountUp(
-              value: p.finalSalary,
-              format: (v) => Fmt.rupiah(v),
-              style: context.text.headlineMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontFeatures: tabular,
+            const Spacer(),
+            FilledButton(
+              onPressed: _claiming ? null : _claim,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: JaspelRewardCard.brand,
+                minimumSize: const Size(0, 44),
               ),
-            ),
-            if (p.totalDeductions > 0)
-              Text(
-                'Remunerasi ${Fmt.rupiah(p.totalAllowances)} dikurangi potongan ${Fmt.rupiah(p.totalDeductions)}',
-                style: onGold,
-              ),
-          ],
-        ),
-        bottom: Row(
-          children: [
-            Expanded(
-              child: TextButton(
-                onPressed: openDetail,
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(0, 44),
-                ),
-                child: const Text('Rincian & slip'),
-              ),
-            ),
-            const SizedBox(width: Sp.md),
-            Expanded(
-              child: FilledButton(
-                onPressed: _claiming ? null : _claim,
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: RewardColors.top,
-                  minimumSize: const Size(0, 44),
-                ),
-                child: Text(_claiming ? 'Mengirim…' : 'Klaim sekarang'),
-              ),
+              child: Text(_claiming ? 'Mengirim…' : 'Klaim sekarang'),
             ),
           ],
         ),

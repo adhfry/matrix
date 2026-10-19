@@ -12,6 +12,7 @@ import '../../core/api/api_client.dart';
 import '../../core/push/push_service.dart';
 import '../../core/storage/secure_store.dart';
 import '../../core/widgets/finance.dart';
+import '../../core/widgets/matrix_glyphs.dart';
 import '../../core/widgets/mx.dart';
 import '../identity/data/identity_repository.dart';
 import '../identity/ui/identity_screen.dart';
@@ -655,10 +656,13 @@ class _NavBar extends StatelessWidget {
                             ),
                           ],
                         ),
-                        child: Icon(
-                          Icons.camera_front_rounded,
-                          color: c.onHero,
-                          size: 28,
+                        child: Center(
+                          child: MxGlyphIcon(
+                            MxGlyph.absen,
+                            color: c.onHero,
+                            accent: c.onHero,
+                            size: 30,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 4),

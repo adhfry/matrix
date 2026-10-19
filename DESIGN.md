@@ -262,3 +262,43 @@ iconnya menjadi lebih khas MATRIX."
 - **Bahasa formal.** Satuan ditulis lengkap ("1 kali", "9 hari"), label status baku ("Terlambat",
   "Pulang awal"), tanpa kata percakapan ("kalau", "pakai").
 - Dial: **ENERGY 3 · RHYTHM 3 · MOTION 3**.
+
+## 16. Beranda mengikuti referensi pemilik (2026-10-19)
+
+Pemilik memberi gambar referensi Beranda dan meminta: "tiru bentuk design tersebut, ada bentuk shadow
+bangunan Labkesda, bentuk UI dan kreasi beranda, iconnya disempurnakan, jangan menggunakan emote
+lambaian." Bagian §15 yang bertentangan (voucher emas bertakik, panel daun berornamen, ketupat)
+diganti oleh bagian ini.
+
+- **Hero:** gradien hijau MATRIX + foto fasad Labkesda (aset `labkesda_depan.jpg`) sebagai siluet:
+  duotone hijau #023826 -> #2E8460, opasitas 55%, memudar ke kiri, menempati 62% lebar kanan. Ujung
+  terang duotone dibatasi luminans 0,18 sehingga teks putih tetap >= 4,5:1. Tepi bawah bergelombang
+  + satu gelombang terang 8% di kanan bawah. Sapaan tanpa emoji; baris ketiga = tanggal lengkap
+  (bukan kalimat motivasi). Jam kerja ditulis "34 jam 12 mnt".
+- **Kartu hari ini:** ubin ikon shift 52 dp radius 16, label "Hari ini · Sen, 19 Okt", pil jam kerja
+  (ikon jam + "13.30–20.00"), pita shift, panel tiga sel (durasi berjalan, check-in, check-out) dan
+  bilah status berwarna nada. Check-out memakai warna langit, BUKAN merah seperti referensi (merah =
+  masalah, §2).
+- **Pita shift (versi besar):** waktu shift yang sudah lewat diisi hijau muda sampai penanda
+  "sekarang"; waktu kerja aktual tetap hijau pekat di atasnya (permintaan pemilik: bagian yang sudah
+  dilewati harus hijau).
+- **Layanan pegawai:** kartu putih, empat ubin warna kategori §12 (radius 16, tinggi 64) dengan ikon
+  MATRIX buatan sendiri (`matrix_glyphs.dart`): pindai wajah, lembar + pena, orang + tambah, kuitansi
+  "Rp"; judul tebal + keterangan dua baris. Tanpa "Lihat semua" karena layanannya memang empat
+  (tautan tanpa tujuan dilarang, R-24/R-26).
+- **Jaspel siap diklaim:** kartu hijau (#035C42 -> #047857 di area teks, memudar ke #A7DCC1 hanya di
+  area ilustrasi), ubin dompet putih, nominal, periode, tombol panah putih, ilustrasi dompet + koin
+  "Rp" + daun digambar dengan kode (berhubungan langsung dengan pencairan, R-22). Kilau 10% tiap
+  4,2 detik tetap ada (pengecualian §7). Komponen yang sama dipakai di Kinerja dengan tombol "Rincian
+  & slip" (kiri, di area gelap) dan "Klaim sekarang" (putih).
+- **Tombol Absen tengah** memakai ikon pindai wajah MATRIX; labelnya tetap "Absen" (bukan "Matrix"
+  seperti referensi) karena label tombol harus menyebut tindakannya.
+- Bagian "Aktivitas cepat" pada referensi tidak dibuat: isinya tidak terlihat di referensi dan tidak
+  ada data yang jelas untuknya (C-3). Jadwal besok & catatan disiplin memakai kartu putih yang sama.
+- **Keterlambatan = kuning (arahan pemilik):** di pita shift, awal jam kerja -> jam check-in diwarnai
+  kuning (#B7780A terang, 3,7:1 terhadap putih untuk grafik; #F4AF26 gelap), lalu check-in ->
+  check-out/sekarang hijau. Keterangan "Terlambat 30 menit 5 detik dari jadwal masuk 13.52." tampil di
+  baris info di bawah ringkasan (latar & teks emas palet, #8D6007 5,5:1), tepat sampai detik. Pulang cepat tetap
+  rose. Ini menggantikan "telat = rose" di §5 khusus untuk pita.
+- **Label ringkas IN / OUT** (arahan pemilik) di kartu hari ini: sel ringkasan dan keterangan jendela
+  waktu di bawah pita. Kalimat status & tombol tetap "check-in"/"check-out".

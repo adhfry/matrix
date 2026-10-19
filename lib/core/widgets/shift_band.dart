@@ -10,8 +10,10 @@ import '../format/fmt.dart';
 ///
 /// - Garis dasar = rentang jam kerja terjadwal ([start]..[end]).
 /// - Kotak tipis di ujung = jendela check-in / check-out (bila ada).
+/// - Hijau muda = waktu shift yang sudah lewat (versi besar saja).
 /// - Isian hijau = waktu yang dijalani ([actualIn]..[actualOut] atau sekarang).
-/// - Rose di ujung = telat (awal) / pulang cepat (akhir).
+/// - Kuning di awal = telat (awal jam kerja -> check-in); rose di akhir =
+///   pulang cepat.
 /// - Garis tegak = "sekarang".
 class ShiftBand extends StatelessWidget {
   const ShiftBand({
@@ -41,6 +43,12 @@ class ShiftBand extends StatelessWidget {
   final int earlySeconds;
   final String? semanticLabel;
 
+  /// Warna keterlambatan (pita & teks "Terlambat"), sama di semua layar.
+  static Color lateColorOf(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFFF4AF26)
+      : const Color(0xFFB7780A);
+
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
@@ -69,6 +77,7 @@ class ShiftBand extends StatelessWidget {
             compact: compact,
             lateSeconds: lateSeconds,
             earlySeconds: earlySeconds,
+            lateColor: lateColorOf(context),
           ),
         ),
       ),
@@ -89,9 +98,14 @@ class _BandPainter extends CustomPainter {
     required this.compact,
     required this.lateSeconds,
     required this.earlySeconds,
+    required this.lateColor,
   });
 
   final MxColors colors;
+
+  /// Kuning keterlambatan: emas logo yang digelapkan (terang, >= 3:1 di
+  /// atas putih) / emas palet gelap (mode gelap).
+  final Color lateColor;
   final DateTime start;
   final DateTime end;
   final DateTimeRange? inWindow;
@@ -156,7 +170,17 @@ class _BandPainter extends CustomPainter {
       Paint()..color = colors.line,
     );
 
-    // Waktu yang dijalani.
+    // Waktu shift yang sudah lewat (awal jam kerja -> sekarang): hijau muda,
+    // supaya pita terbaca sebagai progres hari ini (versi besar di Beranda).
+    if (!compact && now != null && now!.isAfter(start)) {
+      final passed = now!.isAfter(end) ? end : now!;
+      canvas.drawRRect(
+        bar(x(start), x(passed), trackH),
+        Paint()..color = colors.primaryBright.withValues(alpha: 0.45),
+      );
+    }
+
+    // Waktu yang dijalani (check-in -> check-out/sekarang): hijau pekat.
     if (actualIn != null) {
       final until = actualOut ?? now;
       if (until != null && until.isAfter(actualIn!)) {
@@ -167,13 +191,20 @@ class _BandPainter extends CustomPainter {
       }
     }
 
-    // Telat / pulang cepat di ujung yang bersangkutan.
-    final alertPaint = Paint()..color = colors.alert;
+    // Telat: kuning dari awal jam kerja sampai check-in (arahan pemilik
+    // 2026-10-19), lalu hijau dari check-in. Pulang cepat tetap rose.
     if (lateSeconds > 0) {
       final a = x(start);
-      final b = x(start.add(Duration(seconds: lateSeconds)));
-      canvas.drawRRect(bar(a, math.max(b, a + 3), trackH), alertPaint);
+      final lateEnd = actualIn != null && actualIn!.isAfter(start)
+          ? actualIn!
+          : start.add(Duration(seconds: lateSeconds));
+      final b = x(lateEnd);
+      canvas.drawRRect(
+        bar(a, math.max(b, a + 3), trackH),
+        Paint()..color = lateColor,
+      );
     }
+    final alertPaint = Paint()..color = colors.alert;
     if (earlySeconds > 0) {
       final b = x(end);
       final a = x(end.subtract(Duration(seconds: earlySeconds)));
