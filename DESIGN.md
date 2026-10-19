@@ -204,9 +204,12 @@ logo Gmail (merek dagang Google): bukan amplop, sudut & ujung membulat, proporsi
   dan pita emas-merah (0,65 dtk), sinkron dengan suara "Ma-triks" ("Ma" jatuh di ujung goresan hijau,
   "triks" bersama goresan merah). Logo memantul + getar halus, lalu wordmark "MATRIX v2" dan
   kepanjangan naik. Total +-2,9 detik, sekali per buka aplikasi. "Kurangi animasi" -> logo penuh.
-- **Suara pembuka:** `assets/sounds/matrix_voice.ogg` (12 KB). Suara wanita Indonesia (Google TTS
-  id-ID, suara `idc` jaringan, nada dasar +-216 Hz), "Ma" nada sedang, "triks" dinaikkan 3,5 semitone
-  (rubberband, formant dipertahankan), EQ hangat + ruang tipis, loudness -16 LUFS. Diputar lewat aliran
-  suara sistem: ikut senyap di mode senyap/getar, tidak memotong musik. Bisa dimatikan di Akun.
-  Catatan: untuk rilis publik, idealnya diganti rekaman suara asli (mis. staf) atau TTS berlisensi;
-  cukup timpa berkasnya dengan durasi & titik suku kata yang sama.
+- **Suara pembuka (sonic logo):** `assets/sounds/matrix_voice.ogg` (14 KB, 1,4 dtk). Arahan pemilik:
+  suara wanita Indonesia, tidak robot, sedikit melengking (referensi rasa: sonic logo aplikasi bank),
+  "Ma" nada sedang, "triks" lebih tinggi. Dasar: Google TTS id-ID suara `dfz` (wanita, +-270 Hz).
+  "triks" dinaikkan +4 semitone dengan resample (bukan phase vocoder yang membuat kesan robot), sehingga
+  warnanya juga sedikit lebih cerah. Di bawahnya dua nada lonceng lembut C#5 -> F5 mengikuti suku kata,
+  plus EQ "udara", kompresi ringan, ruang tipis, -15 LUFS. Bukan salinan audio pihak lain.
+  Diputar lewat aliran suara sistem: ikut senyap di mode senyap/getar, tidak memotong musik; bisa
+  dimatikan di Akun. Untuk rilis publik, idealnya diganti rekaman suara asli atau TTS berlisensi;
+  cukup timpa berkasnya dengan titik suku kata yang sama.

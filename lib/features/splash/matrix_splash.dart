@@ -33,9 +33,9 @@ class _MatrixSplashState extends ConsumerState<MatrixSplash>
     with SingleTickerProviderStateMixin {
   static const _total = Duration(milliseconds: 2900);
 
-  /// Suara dimulai di sini supaya "Ma" (0,02-0,25 dtk di berkas) jatuh di
-  /// ujung goresan hijau dan "triks" (0,34-0,88 dtk) di goresan merah.
-  static const _voiceAtSeconds = 0.62;
+  /// Suara dimulai di sini supaya "Ma" (0-0,20 dtk di berkas) jatuh di
+  /// ujung goresan hijau dan "triks" (0,25-0,70 dtk) di goresan merah.
+  static const _voiceAtSeconds = 0.66;
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: _total,
