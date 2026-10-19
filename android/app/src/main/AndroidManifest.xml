@@ -70,7 +70,7 @@
             </intent-filter>
         </activity>
         <!-- FCM: kanal, ikon & warna bawaan saat aplikasi di latar (kanal = kategori notifikasi server). -->
-        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sistem"/>
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="mx_sistem"/>
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_matrix"/>
         <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/notification_accent"/>
         <!-- Wajib untuk FirebaseMessaging.register() (firebase_messaging 17+). -->

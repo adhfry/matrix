@@ -23,6 +23,13 @@ enum PushPermission { granted, denied, notDetermined, unavailable }
 
 /// Kanal Android = kategori notifikasi server; nama tampil di Pengaturan
 /// Android sehingga pegawai juga bisa mengatur suara per kanal dari sana.
+/// Kanal Android = "mx_" + kategori server, semuanya bersuara "Maaatriks"
+/// (res/raw/matrix_voice, sama dengan suara pembuka). Suara melekat pada
+/// kanal sejak dibuat, jadi kanal lama (tanpa awalan, suara bawaan)
+/// dihapus dan diganti kanal baru ini.
+const _channelPrefix = 'mx_';
+const _sound = RawResourceAndroidNotificationSound('matrix_voice');
+
 const _channels = <String, (String, String, Importance)>{
   'absensi': (
     'Pengingat absen',
@@ -228,12 +235,14 @@ class PushService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     for (final e in _channels.entries) {
+      await android?.deleteNotificationChannel(channelId: e.key);
       await android?.createNotificationChannel(
         AndroidNotificationChannel(
-          e.key,
+          '$_channelPrefix${e.key}',
           e.value.$1,
           description: e.value.$2,
           importance: e.value.$3,
+          sound: _sound,
         ),
       );
     }
@@ -254,10 +263,11 @@ class PushService {
       body: n.body,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          _channels.containsKey(category) ? category : 'sistem',
+          '$_channelPrefix${_channels.containsKey(category) ? category : 'sistem'}',
           channel.$1,
           channelDescription: channel.$2,
           importance: channel.$3,
+          sound: _sound,
           priority: channel.$3 == Importance.high
               ? Priority.high
               : Priority.defaultPriority,

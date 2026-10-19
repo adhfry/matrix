@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ikon notifikasi dirujuk dari Dart lewat nama, jangan dibuang shrinker. -->
+<!-- Ikon & suara notifikasi dirujuk lewat nama, jangan dibuang shrinker. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_stat_matrix" />
+    tools:keep="@drawable/ic_stat_matrix,@raw/matrix_voice" />
