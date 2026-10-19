@@ -206,10 +206,11 @@ logo Gmail (merek dagang Google): bukan amplop, sudut & ujung membulat, proporsi
   kepanjangan naik. Total +-2,9 detik, sekali per buka aplikasi. "Kurangi animasi" -> logo penuh.
 - **Suara pembuka (sonic logo):** `assets/sounds/matrix_voice.ogg` (16 KB, 1,6 dtk). Arahan pemilik:
   suara wanita Indonesia, tidak robot, sedikit melengking (referensi rasa: sonic logo aplikasi bank),
-  "Maaa" panjang bernada sedang, "triks" lebih tinggi ("Maaatriks"). Dasar: Google TTS id-ID suara `dfz` (wanita, +-270 Hz).
-  Vokal "a" diregangkan +-1,8x (rubberband tempo, nada & formant tetap); "triks" dinaikkan +4 semitone
+  "Ma" bernada sedang, "aa" panjang yang naik sedikit, ditutup "triks" yang lebih tinggi ("Maaatriks"). Dasar: Google TTS id-ID suara `dfz` (wanita, +-270 Hz).
+  Vokal "a" diregangkan +-1,8x (rubberband tempo) lalu konturnya dibentuk dengan TD-PSOLA
+  (`tool/voice_psola.py`: tahan +-279 Hz, naik halus ke +-300 Hz); "triks" dinaikkan +5 semitone (+-338 Hz)
   dengan resample (bukan phase vocoder yang membuat kesan robot), sehingga
-  warnanya juga sedikit lebih cerah. Di bawahnya dua nada lonceng lembut C#5 -> F5 mengikuti suku kata,
+  warnanya juga sedikit lebih cerah. Di bawahnya dua nada lonceng lembut C#5 -> F#5 mengikuti suku kata,
   plus EQ "udara", kompresi ringan, ruang tipis, -15 LUFS. Bukan salinan audio pihak lain.
   Diputar lewat aliran suara sistem: ikut senyap di mode senyap/getar, tidak memotong musik; bisa
   dimatikan di Akun. Untuk rilis publik, idealnya diganti rekaman suara asli atau TTS berlisensi;
