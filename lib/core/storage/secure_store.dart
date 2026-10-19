@@ -70,6 +70,10 @@ class SecureStore {
   Future<bool> ttsEnabled() async => await _read(_ttsEnabled) != 'false';
   Future<void> setTtsEnabled(bool v) => _s.write(key: _ttsEnabled, value: '$v');
 
+  /// Penjelasan izin notifikasi sudah pernah ditampilkan di HP ini.
+  Future<bool> pushAsked() async => await _read('push_asked') == '1';
+  Future<void> setPushAsked() => _s.write(key: 'push_asked', value: '1');
+
   /// Model AI pilihan untuk membaca KTP (Pengaturan lanjutan Pasien KTP);
   /// null = bawaan server. Sengaja tidak dihapus saat keluar akun.
   Future<String?> ocrModel() => _read('ocr_model');

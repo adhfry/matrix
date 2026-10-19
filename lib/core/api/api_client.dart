@@ -149,6 +149,23 @@ class ApiClient {
     }
   }
 
+  Future<dynamic> delete(String path, {Object? data}) =>
+      _send(() => _dio.delete<dynamic>(path, data: data));
+
+  /// GET yang mengembalikan amplop utuh `{data, meta, message}` (untuk paginasi).
+  Future<Map<String, dynamic>> getEnvelope(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    Map<String, dynamic> envelope = const {};
+    await _send(() async {
+      final res = await _dio.get<dynamic>(path, queryParameters: query);
+      if (res.data is Map) envelope = J.m(res.data);
+      return res;
+    });
+    return envelope;
+  }
+
   /// Membuka amplop `{status, data, message}` SiLAKES. Melempar [ApiException]
   /// kalau `status == error` walau HTTP 200 (beberapa endpoint lama begitu).
   Future<dynamic> _send(Future<Response<dynamic>> Function() call) async {

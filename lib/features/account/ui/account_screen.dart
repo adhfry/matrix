@@ -13,6 +13,8 @@ import '../../auth/data/auth_repository.dart';
 import '../../auth/session.dart';
 import '../../scanner/ui/scan_history_screen.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../notifications/data/notification_repository.dart';
+import '../../notifications/ui/notifications_screen.dart';
 import '../../identity/data/identity_repository.dart';
 import '../../identity/ui/identity_screen.dart';
 import '../../security/pin_service.dart';
@@ -233,6 +235,37 @@ class AccountScreen extends ConsumerWidget {
                                     );
                                     ref.invalidate(identityProvider);
                                   },
+                                );
+                              },
+                            ),
+                            Builder(
+                              builder: (context) {
+                                final unread =
+                                    ref.watch(unreadCountProvider).value ?? 0;
+                                return ListTile(
+                                  leading: IconBadge(
+                                    Icons.notifications_none_rounded,
+                                    size: 36,
+                                    background: context.hues.indigo.bg,
+                                    color: context.hues.indigo.fg,
+                                  ),
+                                  title: const Text('Notifikasi'),
+                                  subtitle: const Text(
+                                    'Kotak masuk, jenis notifikasi & jam tenang',
+                                  ),
+                                  trailing: unread > 0
+                                      ? StatusPill(
+                                          '$unread baru',
+                                          tone: Tone.ok,
+                                          dense: true,
+                                        )
+                                      : const Icon(Icons.chevron_right_rounded),
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          const NotificationsScreen(),
+                                    ),
+                                  ),
                                 );
                               },
                             ),

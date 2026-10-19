@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/theme/tokens.dart';
 import '../../app/theme/app_theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/push/push_service.dart';
 import '../../core/storage/secure_store.dart';
 import '../../core/widgets/finance.dart';
 import '../identity/data/identity_repository.dart';
@@ -51,7 +52,81 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _maybeOfferPin();
       await _maybePromptIdentity();
+      await _maybeAskPush();
+      await ref.read(pushServiceProvider).attach();
     });
+  }
+
+  /// Sekali per HP: jelaskan dulu manfaatnya, baru minta izin notifikasi Android.
+  Future<void> _maybeAskPush() async {
+    final push = ref.read(pushServiceProvider);
+    final store = ref.read(secureStoreProvider);
+    if (!mounted ||
+        await store.pushAsked() ||
+        await push.permission() != PushPermission.notDetermined) {
+      return;
+    }
+    await store.setPushAsked();
+    if (!mounted) return;
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Sp.xl, 0, Sp.xl, Sp.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const IconBadge(Icons.notifications_active_outlined, size: 52),
+              const SizedBox(height: Sp.lg),
+              Text('Aktifkan notifikasi', style: ctx.text.titleMedium),
+              const SizedBox(height: Sp.sm),
+              for (final line in const [
+                'Pengingat saat jendela check-in & check-out dibuka',
+                'Jadwal dan jaspel terbit, keputusan izin',
+                'Pesan chat SiLAKES web langsung ke HP',
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Sp.xs),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.check_rounded,
+                        size: 18,
+                        color: ctx.mx.primary,
+                      ),
+                      const SizedBox(width: Sp.sm),
+                      Expanded(child: Text(line, style: ctx.text.bodyMedium)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: Sp.sm),
+              Text(
+                'Jenis notifikasi dan jam tenang bisa diatur kapan saja di Akun.',
+                style: ctx.text.bodySmall?.copyWith(color: ctx.mx.inkMuted),
+              ),
+              const SizedBox(height: Sp.xl),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Aktifkan'),
+                ),
+              ),
+              const SizedBox(height: Sp.sm),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Nanti saja'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (go == true) await push.requestPermission();
   }
 
   /// Sekali per hari: bila data diri belum 100%, minta dilengkapi.

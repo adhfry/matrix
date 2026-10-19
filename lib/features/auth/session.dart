@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/push/push_service.dart';
 import '../security/pin_service.dart';
 import 'data/auth_repository.dart';
 
@@ -130,6 +131,8 @@ class SessionController extends Notifier<SessionState>
   }
 
   Future<void> logout({String? notice}) async {
+    // Lepas token push HP ini selagi token login masih ada (server dikabari).
+    await ref.read(pushServiceProvider).stop();
     await _auth.logout();
     state = SessionNeedsLogin(
       lastUsername: await _auth.lastUsername(),

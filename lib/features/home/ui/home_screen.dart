@@ -16,6 +16,8 @@ import '../../attendance/ui/attendance_launcher.dart';
 import '../../auth/session.dart';
 import '../../kinerja/data/kinerja_repository.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../notifications/data/notification_repository.dart';
+import '../../notifications/ui/notifications_screen.dart';
 import '../../scanner/ui/scan_home_screen.dart';
 import '../../schedule/data/schedule_repository.dart';
 import '../../schedule/ui/shift_style.dart';
@@ -87,6 +89,74 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
+/// Lonceng kotak masuk; lencana = jumlah belum dibaca (sama dengan bell web).
+class _Bell extends ConsumerWidget {
+  const _Bell();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.mx;
+    final unread = ref.watch(unreadCountProvider).value ?? 0;
+    return Semantics(
+      button: true,
+      label: unread > 0 ? 'Notifikasi, $unread belum dibaca' : 'Notifikasi',
+      child: PressScale(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
+        ),
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.12),
+                  ),
+                  child: Icon(
+                    Icons.notifications_none_rounded,
+                    color: c.onHero,
+                  ),
+                ),
+              ),
+              if (unread > 0)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 20),
+                    height: 20,
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: c.alert,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: c.heroTop, width: 2),
+                    ),
+                    child: Text(
+                      unread > 99 ? '99+' : '$unread',
+                      style: context.text.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Hero: sapaan + cincin jam kerja bulan ini (seperti saldo di aplikasi bank).
 class _Hero extends ConsumerWidget {
   const _Hero();
@@ -130,6 +200,8 @@ class _Hero extends ConsumerWidget {
                   ],
                 ),
               ),
+              const _Bell(),
+              const SizedBox(width: Sp.sm),
               Semantics(
                 button: true,
                 label: 'Buka akun',
