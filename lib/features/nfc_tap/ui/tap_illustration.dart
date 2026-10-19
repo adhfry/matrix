@@ -587,7 +587,9 @@ class _CardPainter extends CustomPainter {
     final dash = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = u * 0.12
-      ..color = c.wave.withValues(alpha: 0.55 * (1 - slide * 0.6) * (1 - result));
+      ..color = c.wave.withValues(
+        alpha: 0.55 * (1 - slide * 0.6) * (1 - result),
+      );
     for (var a = 0.0; a < math.pi * 2; a += 0.5) {
       canvas.drawArc(
         Rect.fromCircle(center: target, radius: u * 1.4),

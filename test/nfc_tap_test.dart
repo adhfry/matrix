@@ -48,6 +48,17 @@ Future<void> _pump(WidgetTester tester, NfcTapState s) async {
 void main() {
   setUpAll(() => initializeDateFormatting('id_ID'));
 
+  testWidgets('gerbang server mati: Segera hadir, tanpa tombol daftar', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      NfcTapState(local: _local(), hasCard: true, available: false),
+    );
+    expect(find.text('Segera hadir'), findsOneWidget);
+    expect(find.text('Daftarkan HP ini'), findsNothing);
+  });
+
   testWidgets(
     'HP tanpa NFC / tanpa HCE / tanpa kartu: fitur dikunci dengan alasan jelas',
     (tester) async {

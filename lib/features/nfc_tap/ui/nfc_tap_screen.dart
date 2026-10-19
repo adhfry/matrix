@@ -91,6 +91,16 @@ class _NfcTapScreenState extends ConsumerState<NfcTapScreen>
 
   List<Widget> _body(NfcTapState s) {
     final local = s.local;
+    if (!s.available) {
+      return [
+        const _Blocked(
+          icon: Icons.contactless_outlined,
+          title: 'Segera hadir',
+          body:
+              'HP sebagai alat tap sedang disiapkan bersama alat tap di kantor. Untuk sementara, absen dengan kartu atau lewat aplikasi.',
+        ),
+      ];
+    }
     if (!local.nfc) {
       return [
         const _Blocked(

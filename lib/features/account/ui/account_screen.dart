@@ -13,6 +13,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../auth/session.dart';
 import '../../scanner/ui/scan_history_screen.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../nfc_tap/data/nfc_tap_repository.dart';
 import '../../nfc_tap/ui/nfc_tap_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notifications_screen.dart';
@@ -314,12 +315,30 @@ class AccountScreen extends ConsumerWidget {
                               subtitle: const Text(
                                 'Tempel HP ke alat absen seperti kartu',
                               ),
-                              trailing: const Icon(Icons.chevron_right_rounded),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => const NfcTapScreen(),
-                                ),
-                              ),
+                              // Ditutup sampai alat tap siap (nfc_tap_enabled di server).
+                              trailing:
+                                  ref.watch(nfcTapAvailableProvider).value ==
+                                      true
+                                  ? const Icon(Icons.chevron_right_rounded)
+                                  : const StatusPill(
+                                      'Segera hadir',
+                                      tone: Tone.pending,
+                                    ),
+                              onTap: () {
+                                if (ref.read(nfcTapAvailableProvider).value !=
+                                    true) {
+                                  showMxSnack(
+                                    context,
+                                    'HP sebagai alat tap segera hadir. Untuk sementara, absen dengan kartu atau lewat aplikasi.',
+                                  );
+                                  return;
+                                }
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const NfcTapScreen(),
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

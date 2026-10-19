@@ -88,9 +88,17 @@ class NfcTapDevice {
 
 /// Gabungan status lokal + server untuk halaman pengaturan.
 class NfcTapState {
-  const NfcTapState({required this.local, required this.hasCard, this.device});
+  const NfcTapState({
+    required this.local,
+    required this.hasCard,
+    this.device,
+    this.available = true,
+  });
 
   final NfcTapLocal local;
+
+  /// Fitur dibuka server (MatrixSetting nfc_tap_enabled); false = "Segera hadir".
+  final bool available;
 
   /// Admin sudah mendaftarkan kartu absen untuk akun ini.
   final bool hasCard;
@@ -138,6 +146,7 @@ class NfcTapRepository {
     }
     return NfcTapState(
       local: local,
+      available: d['available'] != false,
       hasCard: d['has_card'] == true,
       device: dev.isEmpty ? null : NfcTapDevice.fromJson(dev),
     );
@@ -186,3 +195,15 @@ final nfcTapRepositoryProvider = Provider<NfcTapRepository>(
 final nfcTapStateProvider = FutureProvider.autoDispose<NfcTapState>(
   (ref) => ref.watch(nfcTapRepositoryProvider).state(),
 );
+
+/// Gerbang fitur untuk entri di halaman Akun (gagal dimuat = anggap belum ada).
+final nfcTapAvailableProvider = FutureProvider.autoDispose<bool>((ref) async {
+  try {
+    final d = J.m(
+      await ref.watch(apiClientProvider).get('${ApiClient.prefix}/nfc-tap'),
+    );
+    return d['available'] == true;
+  } catch (_) {
+    return false;
+  }
+});
