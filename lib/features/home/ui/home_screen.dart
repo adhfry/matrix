@@ -23,7 +23,7 @@ import '../../kinerja/data/kinerja_repository.dart';
 import '../../kinerja/ui/kinerja_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../notifications/data/notification_repository.dart';
-import '../../notifications/ui/notifications_screen.dart';
+import '../../notifications/ui/notification_peek.dart';
 import '../../scanner/ui/scan_home_screen.dart';
 import '../../schedule/data/schedule_repository.dart';
 import '../../schedule/ui/shift_style.dart';
@@ -250,21 +250,31 @@ class _LightWave extends CustomPainter {
 }
 
 /// Lonceng kotak masuk; lencana = jumlah belum dibaca (sama dengan bell web).
-class _Bell extends ConsumerWidget {
+class _Bell extends ConsumerStatefulWidget {
   const _Bell();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_Bell> createState() => _BellState();
+}
+
+class _BellState extends ConsumerState<_Bell> {
+  final _anchor = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.mx;
     final unread = ref.watch(unreadCountProvider).value ?? 0;
     return Semantics(
       button: true,
       label: unread > 0 ? 'Notifikasi, $unread belum dibaca' : 'Notifikasi',
       child: PressScale(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
-        ),
+        haptic: true,
+        onTap: () {
+          ref.invalidate(notificationPeekProvider);
+          showNotificationPeek(context, _anchor);
+        },
         child: SizedBox(
+          key: _anchor,
           width: 48,
           height: 48,
           child: Stack(

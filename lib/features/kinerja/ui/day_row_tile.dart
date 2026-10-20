@@ -179,6 +179,16 @@ class DayRowTile extends StatelessWidget {
                   actualOut: outAt,
                   lateSeconds: day.lateSeconds,
                   earlySeconds: day.earlySeconds,
+                  // Masuk-keluar beberapa kali: satu potongan per sesi.
+                  sessions: day.attendances.length > 1
+                      ? [
+                          for (final a in day.attendances)
+                            (
+                              _on(day.date, a.checkIn),
+                              parseCheckOut(day.date, a.checkOut),
+                            ),
+                        ]
+                      : const [],
                 ),
               ),
             ],

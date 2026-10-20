@@ -212,7 +212,7 @@ class _PressScaleState extends State<PressScale> {
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
+    final scaled = Listener(
       onPointerDown: (_) => _set(true),
       onPointerUp: (_) => _set(false),
       onPointerCancel: (_) => _set(false),
@@ -222,6 +222,18 @@ class _PressScaleState extends State<PressScale> {
         curve: Curves.easeOut,
         child: widget.child,
       ),
+    );
+    if (widget.onTap == null) return scaled;
+    // Sebelumnya onTap hanya dipakai untuk efek tekan dan tidak pernah
+    // dipanggil (lonceng Beranda tidak bereaksi). Detektor di dalam child
+    // tetap menang lebih dulu, jadi tidak ada aksi ganda.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        if (widget.haptic) HapticFeedback.selectionClick();
+        widget.onTap!();
+      },
+      child: scaled,
     );
   }
 }

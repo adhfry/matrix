@@ -182,7 +182,8 @@ class _BandPainter extends CustomPainter {
 
     // Waktu shift yang sudah lewat (awal jam kerja -> sekarang): hijau muda,
     // supaya pita terbaca sebagai progres hari ini (versi besar di Beranda).
-    if (!compact && now != null && now!.isAfter(start)) {
+    // Beberapa sesi: tidak diisi, supaya jeda antarsesi terlihat terputus.
+    if (!compact && sessions.length < 2 && now != null && now!.isAfter(start)) {
       final passed = now!.isAfter(end) ? end : now!;
       canvas.drawRRect(
         bar(x(start), x(passed), trackH),
