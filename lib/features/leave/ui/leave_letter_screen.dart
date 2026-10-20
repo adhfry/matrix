@@ -158,6 +158,9 @@ class _LeaveLetterScreenState extends ConsumerState<LeaveLetterScreen> {
   String? _error;
   bool _busy = false;
 
+  /// Langsung disetujui saat diajukan (persetujuan otomatis menyala).
+  bool _autoApproved = false;
+
   LeaveRepository get _repo => ref.read(leaveRepositoryProvider);
 
   @override
@@ -187,18 +190,21 @@ class _LeaveLetterScreenState extends ConsumerState<LeaveLetterScreen> {
   Future<void> _submit() async {
     setState(() => _busy = true);
     try {
-      final share = await _repo.submitLetter(widget.id);
+      final result = await _repo.submitLetter(widget.id);
       ref.invalidate(leaveMonthProvider);
       ref.invalidate(leaveDetailProvider(widget.id));
       setState(() {
         _status = 'submitted';
-        _share = share;
+        _share = result.share;
+        _autoApproved = result.autoApproved;
         _pdf = null;
       });
       if (mounted) {
         showMxSnack(
           context,
-          'Pengajuan terkirim ke admin. Kirim surat ke Kepala UPTD.',
+          result.autoApproved
+              ? 'Pengajuan langsung disetujui. Kirim surat ke Kepala UPTD.'
+              : 'Pengajuan terkirim ke admin. Kirim surat ke Kepala UPTD.',
           tone: Tone.ok,
         );
       }
@@ -258,6 +264,10 @@ class _LeaveLetterScreenState extends ConsumerState<LeaveLetterScreen> {
       'draft' => (
         'Periksa isi surat. Bila sudah benar, ajukan; admin akan menerima pemberitahuan.',
         Tone.pending,
+      ),
+      'submitted' when _autoApproved => (
+        'Pengajuan langsung disetujui dan jadwal Anda sudah diperbarui. Kirim surat ini ke Kepala UPTD untuk diketahui.',
+        Tone.ok,
       ),
       'submitted' => (
         'Pengajuan terkirim. Kirim surat ini ke Kepala UPTD; setelah disetujui, surat bertanda tangan lengkap tersimpan otomatis.',

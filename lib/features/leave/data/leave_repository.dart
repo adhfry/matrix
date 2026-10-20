@@ -56,6 +56,7 @@ class LeaveItem {
     this.submittedAt,
     this.decidedAt,
     this.reviewer,
+    this.autoApproved = false,
     this.cancelledAt,
     this.cancelledBy,
     this.cancelledBySelf = false,
@@ -85,6 +86,9 @@ class LeaveItem {
   final DateTime? submittedAt;
   final DateTime? decidedAt;
   final String? reviewer;
+
+  /// Disetujui otomatis oleh sistem (admin menyalakan persetujuan otomatis).
+  final bool autoApproved;
 
   /// Dibatalkan: ditarik pegawai saat menunggu, atau oleh admin setelah disetujui.
   final DateTime? cancelledAt;
@@ -119,6 +123,7 @@ class LeaveItem {
     submittedAt: J.dt(j['submitted_at']),
     decidedAt: J.dt(j['decided_at']),
     reviewer: J.s(j['reviewer']),
+    autoApproved: J.b(j['auto_approved']),
     cancelledAt: J.dt(j['cancelled_at']),
     cancelledBy: J.s(j['cancelled_by']),
     cancelledBySelf: j['cancelled_by_self'] == true,
@@ -132,6 +137,12 @@ class LeaveItem {
 }
 
 /// Data tombol "Kirim ke Kepala UPTD" (LeaveLetterService::shareInfo).
+class LeaveSubmitted {
+  const LeaveSubmitted({required this.share, required this.autoApproved});
+  final LeaveShare share;
+  final bool autoApproved;
+}
+
 class LeaveShare {
   const LeaveShare({
     required this.text,
@@ -237,10 +248,15 @@ class LeaveRepository {
   /// PDF surat (draf ber-watermark atau final).
   Future<Uint8List> letter(int id) => _api.bytes('$_p/leave/$id/letter');
 
-  /// Draf -> diajukan; admin diberi tahu. Mengembalikan data bagikan.
-  Future<LeaveShare> submitLetter(int id) async => LeaveShare.fromJson(
-    J.m(J.m(await _api.post('$_p/leave/$id/submit'))['share']),
-  );
+  /// Draf -> diajukan; admin diberi tahu (atau langsung disetujui bila
+  /// persetujuan otomatis menyala). Mengembalikan data bagikan.
+  Future<LeaveSubmitted> submitLetter(int id) async {
+    final d = J.m(await _api.post('$_p/leave/$id/submit'));
+    return LeaveSubmitted(
+      share: LeaveShare.fromJson(J.m(d['share'])),
+      autoApproved: J.b(J.m(d['leave'])['auto_approved']),
+    );
+  }
 
   Future<LeaveShare> share(int id) async =>
       LeaveShare.fromJson(J.m(await _api.get('$_p/leave/$id/share')));

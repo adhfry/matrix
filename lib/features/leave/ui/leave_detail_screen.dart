@@ -449,13 +449,17 @@ class _Timeline extends StatelessWidget {
       (
         title: rejected
             ? 'Ditolak admin'
-            : (approvedOnce ? 'Disetujui admin' : 'Keputusan admin'),
+            : approvedOnce
+            ? (item.autoApproved ? 'Disetujui otomatis' : 'Disetujui admin')
+            : 'Keputusan admin',
         detail: item.decidedAt == null
             ? (item.isDraft
                   ? 'Menunggu pengajuan'
                   : cancelled
                   ? 'Tidak diputuskan, pengajuan ditarik'
                   : 'Menunggu keputusan admin')
+            : item.autoApproved
+            ? '${_when(item.decidedAt!)}\nlangsung saat diajukan'
             : '${_when(item.decidedAt!)}${item.reviewer == null ? '' : '\noleh ${item.reviewer}'}',
         done: item.decidedAt != null,
         tone: rejected ? Tone.alert : Tone.ok,

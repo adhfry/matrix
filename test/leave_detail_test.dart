@@ -110,4 +110,22 @@ void main() {
       expect(find.text('Tarik pengajuan'), findsNothing);
     },
   );
+
+  testWidgets('disetujui otomatis: linimasa menyebut persetujuan otomatis', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      _leave({
+        'status': 'Approved_WithDeduction',
+        'decided_at': '2026-10-19 07:00:05',
+        'reviewer': 'Otomatis oleh sistem',
+        'auto_approved': true,
+      }),
+    );
+    await tester.scrollUntilVisible(find.text('Disetujui otomatis'), 200);
+    expect(find.text('Disetujui otomatis'), findsOneWidget);
+    expect(find.textContaining('langsung saat diajukan'), findsOneWidget);
+    expect(find.text('Disetujui admin'), findsNothing);
+  });
 }
