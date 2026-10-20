@@ -83,4 +83,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sakit disetujui'), findsNothing);
   });
+
+  testWidgets('dropdown tidak terpotong di HP sempit (lonceng di kiri avatar)', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(720, 1600);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+
+    final anchor = GlobalKey();
+    await tester.pumpWidget(
+      ProviderScope(
+        key: UniqueKey(),
+        overrides: [
+          unreadCountProvider.overrideWith(_Unread.new),
+          notificationPeekProvider.overrideWith((ref) async => []),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Stack(
+              children: [
+                // Seperti Beranda: avatar di kanan, lonceng 82 dp dari tepi kanan.
+                Positioned(
+                  top: 40,
+                  right: 82,
+                  child: Builder(
+                    builder: (ctx) => PressScale(
+                      onTap: () => showNotificationPeek(ctx, anchor),
+                      child: SizedBox(key: anchor, width: 48, height: 48),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(anchor));
+    await tester.pumpAndSettle();
+
+    final panel = tester.getRect(
+      find
+          .ancestor(of: find.text('Notifikasi'), matching: find.byType(Material))
+          .first,
+    );
+    expect(panel.left, greaterThanOrEqualTo(16));
+    expect(panel.right, lessThanOrEqualTo(360 - 16));
+  });
 }

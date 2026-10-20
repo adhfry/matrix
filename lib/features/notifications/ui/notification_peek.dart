@@ -61,9 +61,12 @@ class _PeekLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final width = math.min(size.width - Sp.gutter * 2, 380.0);
+    // Rata kanan dengan lonceng, tetapi sisi kiri panel tidak boleh keluar layar.
     final right = rightEdge == null
         ? Sp.gutter
-        : math.max(Sp.gutter, size.width - rightEdge!);
+        : (size.width - rightEdge!)
+              .clamp(Sp.gutter, math.max(Sp.gutter, size.width - Sp.gutter - width))
+              .toDouble();
     return Stack(
       children: [
         Positioned(
