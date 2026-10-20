@@ -185,6 +185,22 @@ class EarlyCheckoutInfo {
       );
 }
 
+/// Satu sesi absen hari ini (masuk-keluar bisa lebih dari sekali sehari).
+class WorkSession {
+  const WorkSession({required this.checkIn, this.checkOut, this.open = false});
+  final DateTime checkIn;
+  final DateTime? checkOut;
+
+  /// Masih berjalan (belum check-out).
+  final bool open;
+
+  factory WorkSession.fromJson(Map<String, dynamic> j) => WorkSession(
+    checkIn: J.dt(j['check_in'])!,
+    checkOut: J.dt(j['check_out']),
+    open: J.b(j['open']),
+  );
+}
+
 /// GET attendance/dashboard — aktivitas hari ini & jadwal besok (tanpa nominal).
 class TodayActivity {
   const TodayActivity({
@@ -197,6 +213,7 @@ class TodayActivity {
     this.attendanceStatus,
     this.tomorrowShift,
     this.tomorrowDate,
+    this.sessions = const [],
   });
 
   final String status; // Belum Absen | Sedang Bekerja | Selesai | Idle
@@ -208,6 +225,10 @@ class TodayActivity {
   final String? attendanceStatus; // On-Time | Late | No-Checkout ...
   final ShiftInfo? tomorrowShift;
   final DateTime? tomorrowDate;
+
+  /// Semua sesi hari ini, urut jam masuk. [checkIn] = masuk pertama,
+  /// [checkOut] = pulang terakhir (kosong selama ada sesi berjalan).
+  final List<WorkSession> sessions;
 
   factory TodayActivity.fromJson(Map<String, dynamic> j) {
     final d = J.m(j['daily_activity']);
@@ -229,6 +250,11 @@ class TodayActivity {
           ? null
           : ShiftInfo.fromJson(J.m(tomorrow['shift'])),
       tomorrowDate: tomorrow == null ? null : J.date(tomorrow['schedule_date']),
+      sessions: J
+          .l(d['sessions'])
+          .where((s) => J.dt(s['check_in']) != null)
+          .map(WorkSession.fromJson)
+          .toList(),
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -539,6 +541,10 @@ class _TodayCard extends ConsumerWidget {
             ? rawIn
             : null;
         final checkIn = staleIn == null ? rawIn : null;
+        // Masuk pertama hari ini (bisa beberapa sesi); pulang terakhir kosong
+        // selama masih ada sesi berjalan.
+        final sessions = today?.sessions ?? const <WorkSession>[];
+        final firstIn = sessions.isNotEmpty ? sessions.first.checkIn : checkIn;
         final shiftTitle = shift == null
             ? null
             : (group == ShiftGroup.libur || group == ShiftGroup.izin
@@ -622,9 +628,10 @@ class _TodayCard extends ConsumerWidget {
                 const SizedBox(height: Sp.lg),
                 _LiveBand(
                   window: w,
-                  checkIn: checkIn,
+                  checkIn: firstIn,
                   checkOut: today?.checkOut,
                   lateSeconds: today?.lateSeconds ?? 0,
+                  sessions: sessions,
                 ),
                 const SizedBox(height: Sp.xs),
                 Row(
@@ -642,12 +649,15 @@ class _TodayCard extends ConsumerWidget {
                   ],
                 ),
               ],
-              if (checkIn != null) ...[
+              if (checkIn != null || sessions.isNotEmpty) ...[
                 const SizedBox(height: Sp.lg),
                 _TodayStats(
-                  checkIn: checkIn,
-                  checkOut: today?.checkOut,
+                  checkIn: firstIn!,
+                  checkOut: sessions.any((s) => s.open)
+                      ? null
+                      : today?.checkOut,
                   lateSeconds: today?.lateSeconds ?? 0,
+                  sessions: sessions,
                 ),
                 // Keterangan terlambat sewarna bagian kuning pita shift.
                 if ((today?.lateSeconds ?? 0) > 0 && w != null) ...[
@@ -717,8 +727,10 @@ class _LiveBand extends ConsumerWidget {
     this.checkIn,
     this.checkOut,
     this.lateSeconds = 0,
+    this.sessions = const [],
   });
 
+  final List<WorkSession> sessions;
   final DateTimeWindow window;
   final DateTime? checkIn;
   final DateTime? checkOut;
@@ -736,6 +748,7 @@ class _LiveBand extends ConsumerWidget {
       actualOut: checkOut,
       now: now,
       lateSeconds: lateSeconds,
+      sessions: [for (final s in sessions) (s.checkIn, s.checkOut)],
     );
   }
 }
@@ -747,8 +760,11 @@ class _TodayStats extends ConsumerWidget {
     required this.checkIn,
     this.checkOut,
     this.lateSeconds = 0,
+    this.sessions = const [],
   });
 
+  /// Semua sesi hari ini: durasi = jumlah sesi selesai + sesi berjalan.
+  final List<WorkSession> sessions;
   final DateTime checkIn;
   final DateTime? checkOut;
   final int lateSeconds;
@@ -758,8 +774,22 @@ class _TodayStats extends ConsumerWidget {
     final c = context.mx;
     final h = context.hues;
     final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final working = checkOut == null;
-    final seconds = (checkOut ?? now).difference(checkIn).inSeconds;
+    final working = sessions.isEmpty
+        ? checkOut == null
+        : sessions.any((s) => s.open);
+    final seconds = sessions.isEmpty
+        ? (checkOut ?? now).difference(checkIn).inSeconds
+        : sessions.fold<int>(
+            0,
+            (sum, s) =>
+                sum +
+                math.max(
+                  0,
+                  (s.checkOut ?? (s.open ? now : s.checkIn))
+                      .difference(s.checkIn)
+                      .inSeconds,
+                ),
+          );
 
     Widget cell({
       required IconData icon,

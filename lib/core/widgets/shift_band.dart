@@ -11,7 +11,9 @@ import '../format/fmt.dart';
 /// - Garis dasar = rentang jam kerja terjadwal ([start]..[end]).
 /// - Kotak tipis di ujung = jendela check-in / check-out (bila ada).
 /// - Hijau muda = waktu shift yang sudah lewat (versi besar saja).
-/// - Isian hijau = waktu yang dijalani ([actualIn]..[actualOut] atau sekarang).
+/// - Isian hijau = waktu yang dijalani ([actualIn]..[actualOut] atau sekarang);
+///   bila ada [sessions], satu potongan per sesi sehingga jeda di antara
+///   sesi terlihat sebagai celah.
 /// - Kuning di awal = telat (awal jam kerja -> check-in); rose di akhir =
 ///   pulang cepat.
 /// - Garis tegak = "sekarang".
@@ -29,7 +31,11 @@ class ShiftBand extends StatelessWidget {
     this.lateSeconds = 0,
     this.earlySeconds = 0,
     this.semanticLabel,
+    this.sessions = const [],
   });
+
+  /// Sesi kerja hari ini (mulai, selesai; selesai null = masih berjalan).
+  final List<(DateTime, DateTime?)> sessions;
 
   final DateTime start;
   final DateTime end;
@@ -78,6 +84,7 @@ class ShiftBand extends StatelessWidget {
             lateSeconds: lateSeconds,
             earlySeconds: earlySeconds,
             lateColor: lateColorOf(context),
+            sessions: sessions,
           ),
         ),
       ),
@@ -99,8 +106,10 @@ class _BandPainter extends CustomPainter {
     required this.lateSeconds,
     required this.earlySeconds,
     required this.lateColor,
+    this.sessions = const [],
   });
 
+  final List<(DateTime, DateTime?)> sessions;
   final MxColors colors;
 
   /// Kuning keterlambatan: emas logo yang digelapkan (terang, >= 3:1 di
@@ -127,6 +136,7 @@ class _BandPainter extends CustomPainter {
       if (outWindow != null) ...[outWindow!.start, outWindow!.end],
       ?actualIn,
       ?actualOut,
+      for (final (a, b) in sessions) ...[a, ?b],
     ];
     final t0 = points.reduce((a, b) => a.isBefore(b) ? a : b);
     final t1 = points.reduce((a, b) => a.isAfter(b) ? a : b);
@@ -180,8 +190,18 @@ class _BandPainter extends CustomPainter {
       );
     }
 
-    // Waktu yang dijalani (check-in -> check-out/sekarang): hijau pekat.
-    if (actualIn != null) {
+    // Waktu yang dijalani: satu potongan hijau pekat per sesi (celah = jeda).
+    if (sessions.isNotEmpty) {
+      for (final (a, b) in sessions) {
+        final until = b ?? now;
+        if (until != null && until.isAfter(a)) {
+          canvas.drawRRect(
+            bar(x(a), math.max(x(until), x(a) + 3), trackH),
+            Paint()..color = colors.primaryBright,
+          );
+        }
+      }
+    } else if (actualIn != null) {
       final until = actualOut ?? now;
       if (until != null && until.isAfter(actualIn!)) {
         canvas.drawRRect(
@@ -234,6 +254,7 @@ class _BandPainter extends CustomPainter {
       old.actualIn != actualIn ||
       old.actualOut != actualOut ||
       old.colors != colors ||
+      old.sessions.length != sessions.length ||
       old.start != start ||
       old.end != end;
 }
