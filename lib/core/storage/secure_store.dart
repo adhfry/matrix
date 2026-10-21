@@ -80,6 +80,10 @@ class SecureStore {
   Future<bool> ttsEnabled() async => await _read(_ttsEnabled) != 'false';
   Future<void> setTtsEnabled(bool v) => _s.write(key: _ttsEnabled, value: '$v');
 
+  /// Scan Cepat di layar scan barang: scan langsung mengurangi stok 1 unit.
+  Future<bool> quickScan() async => await _read('quick_scan') == 'true';
+  Future<void> setQuickScan(bool v) => _s.write(key: 'quick_scan', value: '$v');
+
   /// Pengenalan MATRIX v2 sudah dilihat di HP ini (tidak ikut terhapus saat keluar).
   Future<bool> onboarded() async => await _read('onboarded_v2') == '1';
   Future<void> setOnboarded() => _s.write(key: 'onboarded_v2', value: '1');

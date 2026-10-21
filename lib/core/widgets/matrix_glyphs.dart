@@ -19,6 +19,9 @@ enum MxGlyph {
 
   /// Dompet; pita aksen = kancing (dipakai di kartu jaspel siap diklaim).
   dompet,
+
+  /// Tabung reagen; pita aksen = batas cairan (mengambil barang lewat scan QR).
+  barang,
 }
 
 class MxGlyphIcon extends StatelessWidget {
@@ -204,6 +207,22 @@ class _GlyphPainter extends CustomPainter {
           main,
         );
         canvas.drawCircle(o(17.4, 13.2), 1.3 * k, ribFill);
+      case MxGlyph.barang:
+        canvas.drawLine(o(7.6, 3), o(16.4, 3), main);
+        canvas.drawPath(
+          Path()
+            ..moveTo(9.2 * k, 3 * k)
+            ..lineTo(9.2 * k, 17.4 * k)
+            ..arcToPoint(
+              o(14.8, 17.4),
+              radius: Radius.circular(2.8 * k),
+              clockwise: false,
+            )
+            ..lineTo(14.8 * k, 3 * k),
+          main,
+        );
+        canvas.drawLine(o(10.4, 12.2), o(13.6, 12.2), rib);
+        canvas.drawCircle(o(12, 16.4), 1.1 * k, ribFill);
     }
   }
 

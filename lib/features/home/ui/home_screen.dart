@@ -28,6 +28,7 @@ import '../../scanner/ui/scan_home_screen.dart';
 import '../../schedule/data/schedule_repository.dart';
 import '../../schedule/ui/shift_style.dart';
 import '../../shell/home_shell.dart';
+import '../../stock/ui/stock_scan_screen.dart';
 
 DateTime _thisMonth() {
   final n = DateTime.now();
@@ -1008,9 +1009,10 @@ class _Services extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: Sp.md),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          // Tiga kolom: ubin lebih lebar dari empat kolom, judul & keterangan
+          // tetap utuh di HP 360 dp.
+          for (final row in [
+            [
               _ServiceTile(
                 glyph: MxGlyph.absen,
                 title: 'Absen',
@@ -1018,7 +1020,6 @@ class _Services extends ConsumerWidget {
                 hue: Hue(c.primary, c.primaryContainer),
                 onTap: () => launchAttendance(context, ref),
               ),
-              const SizedBox(width: Sp.sm),
               _ServiceTile(
                 glyph: MxGlyph.izin,
                 title: 'Izin & cuti',
@@ -1026,15 +1027,6 @@ class _Services extends ConsumerWidget {
                 hue: h.purple,
                 onTap: () => push(const LeaveScreen()),
               ),
-              const SizedBox(width: Sp.sm),
-              _ServiceTile(
-                glyph: MxGlyph.pasien,
-                title: 'Pasien',
-                subtitle: 'Daftar dari foto KTP',
-                hue: h.sky,
-                onTap: () => push(const ScanHomeScreen()),
-              ),
-              const SizedBox(width: Sp.sm),
               _ServiceTile(
                 glyph: MxGlyph.jaspel,
                 title: 'Jaspel',
@@ -1043,7 +1035,36 @@ class _Services extends ConsumerWidget {
                 onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
               ),
             ],
-          ),
+            [
+              _ServiceTile(
+                glyph: MxGlyph.pasien,
+                title: 'Pasien',
+                subtitle: 'Daftar dari foto KTP',
+                hue: h.sky,
+                onTap: () => push(const ScanHomeScreen()),
+              ),
+              _ServiceTile(
+                glyph: MxGlyph.barang,
+                title: 'Ambil barang',
+                subtitle: 'Scan QR reagen',
+                hue: h.orange,
+                onTap: () => push(const StockScanScreen()),
+              ),
+              const Expanded(child: SizedBox.shrink()),
+            ],
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: Sp.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < row.length; i++) ...[
+                    if (i > 0) const SizedBox(width: Sp.sm),
+                    row[i],
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
