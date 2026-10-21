@@ -10,6 +10,8 @@
     
     <!-- Camera Permissions -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Pesan suara di chat SiLAKES. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     
     <!-- Storage Permissions -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 

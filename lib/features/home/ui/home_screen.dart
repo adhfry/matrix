@@ -23,6 +23,8 @@ import '../../auth/session.dart';
 import '../../kinerja/data/kinerja_repository.dart';
 import '../../kinerja/ui/kinerja_screen.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../chat/data/chat_repository.dart';
+import '../../chat/ui/chat_list_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notification_peek.dart';
 import '../../scanner/ui/scan_home_screen.dart';
@@ -251,6 +253,76 @@ class _LightWave extends CustomPainter {
   bool shouldRepaint(_LightWave old) => false;
 }
 
+/// Chat SiLAKES; lencana putih = jumlah pesan belum dibaca (bukan merah:
+/// pesan baru bukan masalah, DESIGN.md §2).
+class _ChatButton extends ConsumerWidget {
+  const _ChatButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.mx;
+    final unread = ref.watch(chatUnreadProvider);
+    return Semantics(
+      button: true,
+      label: unread > 0 ? 'Chat, $unread pesan belum dibaca' : 'Chat',
+      child: PressScale(
+        haptic: true,
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const ChatListScreen()),
+          );
+          if (context.mounted) ref.invalidate(chatConversationsProvider);
+        },
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Center(
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.14),
+                  ),
+                  child: Icon(Icons.forum_outlined, color: c.onHero),
+                ),
+              ),
+              if (unread > 0)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 20),
+                    height: 20,
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: c.heroTop, width: 2),
+                    ),
+                    child: Text(
+                      unread > 99 ? '99+' : '$unread',
+                      style: context.text.labelSmall?.copyWith(
+                        color: const Color(0xFF047857),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Lonceng kotak masuk; lencana = jumlah belum dibaca (sama dengan bell web).
 class _Bell extends ConsumerStatefulWidget {
   const _Bell();
@@ -378,6 +450,8 @@ class _Hero extends ConsumerWidget {
                   ],
                 ),
               ),
+              const _ChatButton(),
+              const SizedBox(width: Sp.xs),
               const _Bell(),
               const SizedBox(width: Sp.sm),
               Semantics(

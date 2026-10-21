@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app.dart';
+import '../chat/ui/chat_list_screen.dart';
+import '../chat/ui/chat_thread_screen.dart';
 import '../leave/ui/leave_detail_screen.dart';
 import '../leave/ui/leave_screen.dart';
 import '../swap/ui/swap_screen.dart';
@@ -11,7 +13,7 @@ import 'ui/notifications_screen.dart';
 
 /// Buka tujuan notifikasi. [route] dari server, mis. "jaspel?month=09-2026",
 /// "schedule?month=2026-11", "attendance", "leave", "chat?conversation=5",
-/// "web". Chat & "web" dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
+/// "web". "web" dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
 /// -> kotak masuk.
 /// [goTab] memindah tab beranda (dari layanan maupun widget).
 Future<void> openNotificationRoute({
@@ -62,8 +64,18 @@ Future<void> openNotificationRoute({
           ),
         ),
       );
-    // Chat & halaman yang hanya ada di SiLAKES web (persetujuan admin, rapat).
-    case 'chat' || 'web' when webUrl != null && webUrl.isNotEmpty:
+    // "chat?conversation=5" -> percakapan di aplikasi; tanpa id -> daftar chat.
+    case 'chat':
+      final id = int.tryParse(uri?.queryParameters['conversation'] ?? '');
+      await nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => id == null
+              ? const ChatListScreen()
+              : ChatThreadScreen(conversationId: id),
+        ),
+      );
+    // Halaman yang hanya ada di SiLAKES web (persetujuan admin, rapat).
+    case 'web' when webUrl != null && webUrl.isNotEmpty:
       await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
     default:
       if (!fromInbox) {

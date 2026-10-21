@@ -13,6 +13,7 @@ import '../../features/auth/session.dart';
 import '../../features/kinerja/data/kinerja_repository.dart';
 import '../../features/leave/data/leave_repository.dart';
 import '../../features/notifications/data/notification_repository.dart';
+import '../../features/chat/data/chat_repository.dart';
 import '../../features/notifications/notification_router.dart';
 import '../../features/schedule/data/schedule_repository.dart';
 import '../../features/schedule/ui/schedule_screen.dart';
@@ -259,6 +260,9 @@ class PushService {
     _refreshFor(m.data);
     final n = m.notification;
     if (n == null) return;
+    // Pesan untuk percakapan yang sedang terbuka sudah tampil di layar.
+    final convId = int.tryParse('${m.data['conversation_id'] ?? ''}');
+    if (convId != null && convId == _ref.read(openConversationProvider)) return;
     final category = (m.data['category'] as String?) ?? 'sistem';
     final channel = _channels[category] ?? _channels['sistem']!;
     final tag = n.android?.tag ?? m.data['type'] as String?;
@@ -290,6 +294,9 @@ class PushService {
   void _refreshFor(Map<String, dynamic> data) {
     unawaited(_ref.read(unreadCountProvider.notifier).refresh());
     _ref.invalidate(inboxProvider);
+    if ('${data['category'] ?? ''}'.startsWith('chat')) {
+      _ref.invalidate(chatConversationsProvider);
+    }
     final type = (data['type'] as String?) ?? '';
     if (type.startsWith('jaspel')) {
       _ref

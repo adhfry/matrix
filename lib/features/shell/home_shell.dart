@@ -20,6 +20,9 @@ import '../documents/data/document_repository.dart';
 import '../documents/ui/documents_screen.dart';
 import '../account/ui/account_screen.dart';
 import '../attendance/ui/attendance_launcher.dart';
+import '../scanner/ui/scan_camera_screen.dart';
+import '../stock/ui/stock_scan_screen.dart';
+import 'quick_camera_menu.dart';
 import '../auth/session.dart';
 import '../home/ui/home_screen.dart';
 import '../kinerja/ui/kinerja_screen.dart';
@@ -669,64 +672,121 @@ class _NavBar extends StatelessWidget {
               ],
             ),
           ),
-          Positioned(
-            top: 0,
-            child: Semantics(
-              button: true,
-              label: 'Absen sekarang',
-              excludeSemantics: true,
-              child: PressScale(
-                onTap: onAttend,
-                child: GestureDetector(
-                  onTap: () {
-                    HapticFeedback.mediumImpact();
-                    onAttend();
-                  },
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 64,
-                        height: 64,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [c.heroTop, c.heroBottom],
-                          ),
-                          border: Border.all(color: c.surface, width: 4),
-                          boxShadow: [
-                            BoxShadow(
-                              color: c.heroBottom.withValues(alpha: 0.35),
-                              blurRadius: 14,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: MxGlyphIcon(
-                            MxGlyph.absen,
-                            color: c.onHero,
-                            accent: c.onHero,
-                            size: 30,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Absen',
-                        style: context.text.labelSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: c.ink,
-                        ),
-                      ),
-                    ],
+          Positioned(top: 0, child: _AttendButton(onAttend: onAttend)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tombol Absen tengah. Ketuk = absen (seperti sebelumnya). Tahan = pintasan
+/// tiga fitur kamera; geser jari ke salah satunya lalu lepas untuk membukanya.
+class _AttendButton extends ConsumerStatefulWidget {
+  const _AttendButton({required this.onAttend});
+
+  final VoidCallback onAttend;
+
+  @override
+  ConsumerState<_AttendButton> createState() => _AttendButtonState();
+}
+
+class _AttendButtonState extends ConsumerState<_AttendButton> {
+  final _circle = GlobalKey();
+  QuickMenuDrag? _drag;
+  bool _down = false;
+
+  Offset _origin() {
+    final box = _circle.currentContext!.findRenderObject()! as RenderBox;
+    return box.localToGlobal(box.size.center(Offset.zero));
+  }
+
+  Future<void> _openMenu({bool withDrag = true}) async {
+    final drag = withDrag ? QuickMenuDrag() : null;
+    _drag = drag;
+    setState(() => _down = false);
+    final picked = await showQuickCameraMenu(context, origin: _origin(), drag: drag);
+    _drag = null;
+    drag?.dispose();
+    if (!mounted || picked == null) return;
+    switch (picked) {
+      case QuickCameraAction.attendance:
+        widget.onAttend();
+      case QuickCameraAction.stock:
+        await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const StockScanScreen()));
+      case QuickCameraAction.ktp:
+        await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const ScanCameraScreen()));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    return Semantics(
+      button: true,
+      label: 'Absen sekarang',
+      onLongPressHint: 'buka pintasan kamera',
+      onLongPress: () => _openMenu(withDrag: false),
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _down = true),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: () {
+          setState(() => _down = false);
+          HapticFeedback.mediumImpact();
+          widget.onAttend();
+        },
+        onLongPressStart: (_) => _openMenu(),
+        onLongPressMoveUpdate: (d) => _drag?.pointer.value = d.globalPosition,
+        onLongPressEnd: (d) {
+          _drag?.pointer.value = d.globalPosition;
+          _drag?.released.value = true;
+        },
+        child: AnimatedScale(
+          scale: _down ? 0.94 : 1,
+          duration: Motion.of(context, const Duration(milliseconds: 120)),
+          curve: Curves.easeOut,
+          child: Column(
+            children: [
+              Container(
+                key: _circle,
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [c.heroTop, c.heroBottom],
+                  ),
+                  border: Border.all(color: c.surface, width: 4),
+                  boxShadow: [
+                    BoxShadow(
+                      color: c.heroBottom.withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: MxGlyphIcon(
+                    MxGlyph.absen,
+                    color: c.onHero,
+                    accent: c.onHero,
+                    size: 30,
                   ),
                 ),
               ),
-            ),
+              const SizedBox(height: 4),
+              Text(
+                'Absen',
+                style: context.text.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: c.ink,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -302,3 +302,23 @@ diganti oleh bagian ini.
   rose. Ini menggantikan "telat = rose" di §5 khusus untuk pita.
 - **Label ringkas IN / OUT** (arahan pemilik) di kartu hari ini: sel ringkasan dan keterangan jendela
   waktu di bawah pita. Kalimat status & tombol tetap "check-in"/"check-out".
+
+## 17. Pintasan kamera di tombol Absen & chat SiLAKES (arahan pemilik 2026-10-21)
+
+Permintaan pemilik: tombol Absen tetap absen bila diketuk; bila ditahan muncul tiga pintasan fitur
+kamera (kiri ambil barang, tengah absen, kanan scan KTP pasien) dengan animasi lingkaran kecil yang
+muncul dari kiri lalu membesar sambil meluncur melengkung, tombol X untuk batal, bayangan bergradien
+per bagian yang berubah hijau saat jari mengarah ke sana (sketsa pemilik).
+
+- **Gestur:** tahan 0,5 dtk membuka menu (getar kuat); jari tetap di layar dan digeser ke sektor ->
+  lingkaran & sektornya hijau MATRIX + getar halus; lepas = buka fitur. Dilepas tanpa memilih -> menu
+  tetap terbuka untuk diketuk. X, ketuk latar, atau tombol kembali = batal. TalkBack: aksi tekan-lama
+  membuka menu yang sama. `lib/features/shell/quick_camera_menu.dart`.
+- **Gerak (MOTION 3):** 520 ms masuk, tiap lingkaran menyusul 70 ms di lintasan kurva Bezier dari kiri;
+  skala memakai kurva sedikit melampaui (0.34, 1.4, 0.64, 1) supaya terasa "terpasang", bukan memantul
+  berulang. Hijau = arti "dipilih/baik" (§2), bukan dekorasi. Semua mati bila "kurangi animasi" aktif.
+- **Warna ikon pintasan** mengikuti ubin Beranda: barang jingga, absen hijau, pasien langit (§12).
+- **Chat** (`lib/features/chat`): sama dengan widget chat SiLAKES web + balas (geser kanan / tekan lama),
+  tarik pesan untuk saya / untuk semua ("Pesan ini telah dihapus"), info dikirim & dibaca sampai detik.
+  Bubble sendiri hijau MATRIX, lawan bicara putih; dibaca = dua centang (bentuk, bukan warna saja).
+  Lencana chat di hero Beranda putih berteks hijau, bukan merah: pesan baru bukan masalah (§2).
