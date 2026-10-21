@@ -107,18 +107,112 @@ void main() {
       expect(got, QuickCameraAction.ktp);
     });
 
-    testWidgets('dilepas tanpa memilih: menu tetap terbuka, ketuk pilihan membukanya', (tester) async {
+    testWidgets('dilepas tanpa memilih: menu tertutup sendiri tanpa membuka apa pun', (tester) async {
       final drag = QuickMenuDrag();
       addTearDown(drag.dispose);
-      QuickCameraAction? got;
-      await open(tester, drag, (a) => got = a);
+      var closed = false;
+      QuickCameraAction? got = QuickCameraAction.attendance;
+      await open(tester, drag, (a) {
+        closed = true;
+        got = a;
+      });
       drag.pointer.value = const Offset(182, 702);
       drag.released.value = true;
       await tester.pumpAndSettle();
-      expect(find.text('Ambil barang'), findsOneWidget);
+      expect(closed, isTrue);
+      expect(got, isNull);
+      expect(find.text('Ambil barang'), findsNothing);
+    });
+
+    testWidgets('dibuka tanpa seret (pembaca layar): menu tetap terbuka untuk diketuk', (tester) async {
+      QuickCameraAction? got;
+      await open(tester, null, (a) => got = a);
       await tester.tap(find.text('Ambil barang'));
       await tester.pumpAndSettle();
       expect(got, QuickCameraAction.stock);
+    });
+
+    // Sentuhan sungguhan pada QuickMenuGesture (gestur tombol Absen yang dipakai
+    // aplikasi), bukan menyuntik posisi jari ke menu.
+    Future<({List<String> events, Offset origin, TestGesture g})> press(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final events = <String>[];
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Align(
+              alignment: const Alignment(0, 0.8),
+              child: QuickMenuGesture(
+                origin: () {
+                  final box = key.currentContext!.findRenderObject()! as RenderBox;
+                  return box.localToGlobal(box.size.center(Offset.zero));
+                },
+                onTap: () => events.add('absen'),
+                onPicked: (a) => events.add(a.name),
+                child: SizedBox(key: key, width: 64, height: 64),
+              ),
+            ),
+          ),
+        ),
+      );
+      final origin = tester.getCenter(find.byKey(key));
+      final g = await tester.startGesture(origin);
+      return (events: events, origin: origin, g: g);
+    }
+
+    testWidgets('ketuk cepat = absen, menu tidak muncul', (tester) async {
+      final t = await press(tester);
+      await tester.pump(const Duration(milliseconds: 80));
+      await t.g.up();
+      await tester.pumpAndSettle();
+      expect(t.events, ['absen']);
+      expect(find.text('Scan KTP pasien'), findsNothing);
+    });
+
+    testWidgets('ketuk pelan (menu sempat muncul, dilepas di tempat) tetap = absen', (tester) async {
+      final t = await press(tester);
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.text('Scan KTP pasien'), findsOneWidget);
+      await t.g.up();
+      await tester.pumpAndSettle();
+      expect(t.events, ['absen']);
+      expect(find.text('Scan KTP pasien'), findsNothing);
+    });
+
+    testWidgets('tahan lama lalu lepas di tempat = menu tertutup tanpa membuka apa pun', (tester) async {
+      final t = await press(tester);
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.text('Scan KTP pasien'), findsOneWidget);
+      await t.g.up();
+      await tester.pumpAndSettle();
+      expect(t.events, isEmpty);
+      expect(find.text('Scan KTP pasien'), findsNothing);
+    });
+
+    testWidgets('tekan lalu langsung seret ke Scan KTP, lepas = scan KTP', (tester) async {
+      final t = await press(tester);
+      await tester.pump(const Duration(milliseconds: 40));
+      await t.g.moveTo(t.origin + const Offset(20, -20));
+      await tester.pump(const Duration(milliseconds: 60));
+      await t.g.moveTo(t.origin + const Offset(108, -57));
+      await tester.pump(const Duration(milliseconds: 60));
+      await t.g.up();
+      await tester.pumpAndSettle();
+      expect(t.events, ['ktp']);
+    });
+
+    testWidgets('tahan sampai menu muncul, seret ke Ambil barang, lepas = ambil barang', (tester) async {
+      final t = await press(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      await t.g.moveTo(t.origin + const Offset(-108, -57));
+      await tester.pump(const Duration(milliseconds: 60));
+      await t.g.up();
+      await tester.pumpAndSettle();
+      expect(t.events, ['stock']);
     });
 
     testWidgets('tombol X menutup tanpa memilih', (tester) async {

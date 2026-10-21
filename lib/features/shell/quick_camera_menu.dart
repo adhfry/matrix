@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -45,30 +46,238 @@ const _sectorEdges = [-180.0, -121.0, -59.0, 0.0];
 const _radius = 122.0;
 const _optionSize = 64.0;
 
+/// Gestur tombol Absen. Ketuk = [onTap]. Tahan [holdDelay] atau tekan lalu
+/// geser melewati [swipeSlop] = menu pintasan, dan jari yang sama memilih tanpa
+/// diangkat; dilepas di luar pilihan = menu tertutup. Ketukan pelan yang sempat
+/// membuka menu tetapi dilepas di tempat sebelum [tapGrace] tetap = [onTap].
+/// Ditangani langsung dari pointer, bukan arena gestur: deteksi tahan bawaan
+/// Flutter batal begitu jari bergeser sebelum waktunya.
+class QuickMenuGesture extends StatefulWidget {
+  const QuickMenuGesture({
+    super.key,
+    required this.origin,
+    required this.onTap,
+    required this.onPicked,
+    required this.child,
+    this.onPressed,
+  });
+
+  static const holdDelay = Duration(milliseconds: 300);
+  static const tapGrace = Duration(milliseconds: 450);
+  static const swipeSlop = 10.0;
+
+  /// Pusat menu (koordinat global), biasanya pusat lingkaran tombol.
+  final Offset Function() origin;
+  final VoidCallback onTap;
+  final ValueChanged<QuickCameraAction> onPicked;
+
+  /// Sedang ditekan (untuk animasi tombol mengecil).
+  final ValueChanged<bool>? onPressed;
+  final Widget child;
+
+  @override
+  State<QuickMenuGesture> createState() => _QuickMenuGestureState();
+}
+
+class _QuickMenuGestureState extends State<QuickMenuGesture> {
+  QuickMenuDrag? _drag;
+  Timer? _hold;
+  int? _pointer;
+  Offset _downAt = Offset.zero;
+  Timer? _grace;
+  bool _graceOver = false;
+  bool _moved = false;
+  bool _menuOpen = false;
+  bool _tapAfterClose = false;
+
+  @override
+  void dispose() {
+    _hold?.cancel();
+    _grace?.cancel();
+    super.dispose();
+  }
+
+  void _setPressed(bool v) => widget.onPressed?.call(v);
+
+  void _onDown(PointerDownEvent e) {
+    if (_pointer != null || _menuOpen) return;
+    _pointer = e.pointer;
+    _downAt = e.position;
+    _moved = false;
+    _graceOver = false;
+    _grace?.cancel();
+    _grace = Timer(QuickMenuGesture.tapGrace, () => _graceOver = true);
+    _setPressed(true);
+    _hold = Timer(QuickMenuGesture.holdDelay, () {
+      if (_pointer != null && !_menuOpen) _startMenu();
+    });
+  }
+
+  void _onMove(PointerMoveEvent e) {
+    if (e.pointer != _pointer) return;
+    // Tekan lalu langsung geser: buka menu tanpa menunggu waktu tahan.
+    if ((e.position - _downAt).distance > QuickMenuGesture.swipeSlop) {
+      _moved = true;
+      if (!_menuOpen) _startMenu();
+    }
+    _drag?.pointer.value = e.position;
+  }
+
+  void _onUp(PointerUpEvent e) {
+    if (e.pointer != _pointer) return;
+    _hold?.cancel();
+    _pointer = null;
+    _grace?.cancel();
+    if (_menuOpen) {
+      _tapAfterClose = !_moved && !_graceOver;
+      _drag?.pointer.value = e.position;
+      _drag?.released.value = true;
+      return;
+    }
+    _setPressed(false);
+    widget.onTap();
+  }
+
+  void _onCancel(PointerCancelEvent e) {
+    if (e.pointer != _pointer) return;
+    _hold?.cancel();
+    _pointer = null;
+    if (_menuOpen) {
+      _drag?.released.value = true;
+    } else {
+      _setPressed(false);
+    }
+  }
+
+  Future<void> _startMenu() async {
+    _hold?.cancel();
+    _menuOpen = true;
+    _setPressed(false);
+    final drag = QuickMenuDrag();
+    _drag = drag;
+    final picked = await showQuickCameraMenu(context, origin: widget.origin(), drag: drag);
+    _drag = null;
+    _menuOpen = false;
+    drag.dispose();
+    final tap = _tapAfterClose;
+    _tapAfterClose = false;
+    if (!mounted) return;
+    if (picked != null) {
+      widget.onPicked(picked);
+    } else if (tap) {
+      widget.onTap();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Listener(
+    behavior: HitTestBehavior.opaque,
+    onPointerDown: _onDown,
+    onPointerMove: _onMove,
+    onPointerUp: _onUp,
+    onPointerCancel: _onCancel,
+    child: widget.child,
+  );
+}
+
+const _openDuration = Duration(milliseconds: 300);
+const _closeDuration = Duration(milliseconds: 180);
+
 /// Buka menu pintasan kamera di atas tombol Absen. [origin] = pusat tombol
 /// (koordinat global). Mengembalikan pilihan, atau null bila dibatalkan.
+///
+/// Dengan [drag] (jari masih menahan tombol) menu dipasang sebagai lapisan
+/// Overlay, bukan halaman: Navigator.push membatalkan sentuhan yang sedang
+/// aktif, sehingga jari tidak bisa lagi menyeret dan melepas untuk memilih.
+/// Tanpa [drag] (pembaca layar) tetap berupa halaman agar tombol kembali bekerja.
 Future<QuickCameraAction?> showQuickCameraMenu(
   BuildContext context, {
   required Offset origin,
   QuickMenuDrag? drag,
 }) {
   final reduce = MediaQuery.maybeDisableAnimationsOf(context) == true;
+  if (drag != null) {
+    final done = Completer<QuickCameraAction?>();
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => _OverlayMenu(
+        origin: origin,
+        drag: drag,
+        reduce: reduce,
+        onDone: (a) {
+          entry.remove();
+          if (!done.isCompleted) done.complete(a);
+        },
+      ),
+    );
+    Overlay.of(context, rootOverlay: true).insert(entry);
+    return done.future;
+  }
   return Navigator.of(context, rootNavigator: true).push(
     PageRouteBuilder<QuickCameraAction>(
       opaque: false,
       barrierLabel: 'Tutup pintasan kamera',
-      transitionDuration: reduce ? Duration.zero : const Duration(milliseconds: 520),
-      reverseTransitionDuration: reduce ? Duration.zero : const Duration(milliseconds: 220),
-      pageBuilder: (_, anim, _) => _QuickMenu(origin: origin, drag: drag, anim: anim),
+      transitionDuration: reduce ? Duration.zero : _openDuration,
+      reverseTransitionDuration: reduce ? Duration.zero : _closeDuration,
+      pageBuilder: (context, anim, _) => _QuickMenu(
+        origin: origin,
+        anim: anim,
+        onDone: (a) => Navigator.of(context).pop(a),
+      ),
     ),
   );
 }
 
+/// Menu di lapisan Overlay: animasi buka/tutup dikelola sendiri.
+class _OverlayMenu extends StatefulWidget {
+  const _OverlayMenu({
+    required this.origin,
+    required this.drag,
+    required this.reduce,
+    required this.onDone,
+  });
+
+  final Offset origin;
+  final QuickMenuDrag drag;
+  final bool reduce;
+  final ValueChanged<QuickCameraAction?> onDone;
+
+  @override
+  State<_OverlayMenu> createState() => _OverlayMenuState();
+}
+
+class _OverlayMenuState extends State<_OverlayMenu> with SingleTickerProviderStateMixin {
+  late final AnimationController _anim = AnimationController(
+    vsync: this,
+    duration: widget.reduce ? Duration.zero : _openDuration,
+    reverseDuration: widget.reduce ? Duration.zero : _closeDuration,
+  )..forward();
+  bool _closing = false;
+
+  Future<void> _finish(QuickCameraAction? a) async {
+    if (_closing) return;
+    _closing = true;
+    await _anim.reverse();
+    widget.onDone(a);
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _QuickMenu(origin: widget.origin, drag: widget.drag, anim: _anim, onDone: _finish);
+}
+
 class _QuickMenu extends StatefulWidget {
-  const _QuickMenu({required this.origin, required this.anim, this.drag});
+  const _QuickMenu({required this.origin, required this.anim, required this.onDone, this.drag});
 
   final Offset origin;
   final Animation<double> anim;
+  final ValueChanged<QuickCameraAction?> onDone;
   final QuickMenuDrag? drag;
 
   @override
@@ -133,21 +342,26 @@ class _QuickMenuState extends State<_QuickMenu> {
 
   void _onRelease() {
     if (!widget.drag!.released.value) return;
-    // Dilepas tanpa memilih: menu tetap terbuka untuk diketuk.
-    if (_hover != null) _select(_options[_hover!].action);
+    // Dilepas di atas pilihan = buka fiturnya; dilepas di tempat lain = tutup.
+    final hover = _hover;
+    if (hover != null) {
+      _select(_options[hover].action);
+    } else {
+      _close();
+    }
   }
 
   void _select(QuickCameraAction a) {
     if (_done) return;
     _done = true;
     HapticFeedback.mediumImpact();
-    Navigator.of(context).pop(a);
+    widget.onDone(a);
   }
 
   void _close() {
     if (_done) return;
     _done = true;
-    Navigator.of(context).pop();
+    widget.onDone(null);
   }
 
   @override
@@ -188,7 +402,7 @@ class _QuickMenuState extends State<_QuickMenu> {
   }
 
   /// Lingkaran muncul dari kiri sebagai titik kecil, lalu meluncur melengkung
-  /// ke posisinya sambil membesar; tiap lingkaran menyusul 70 ms.
+  /// ke posisinya sambil membesar; tiap lingkaran menyusul sekitar 30 ms.
   Widget _option(BuildContext context, int i, double t) {
     final o = _options[i];
     final c = context.mx;
@@ -198,8 +412,8 @@ class _QuickMenuState extends State<_QuickMenu> {
       QuickCameraAction.attendance => Hue(c.primary, c.primaryContainer),
       QuickCameraAction.ktp => h.sky,
     };
-    final start = i * 0.13;
-    final local = ((t - start) / (1 - 0.26)).clamp(0.0, 1.0);
+    final start = i * 0.1;
+    final local = ((t - start) / (1 - 0.2)).clamp(0.0, 1.0);
     final move = Curves.easeOutCubic.transform(local);
     final grow = const Cubic(0.34, 1.4, 0.64, 1).transform(local);
 

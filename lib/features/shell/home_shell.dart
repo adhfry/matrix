@@ -682,7 +682,8 @@ class _NavBar extends StatelessWidget {
 }
 
 /// Tombol Absen tengah. Ketuk = absen (seperti sebelumnya). Tahan = pintasan
-/// tiga fitur kamera; geser jari ke salah satunya lalu lepas untuk membukanya.
+/// tiga fitur kamera; geser jari ke salah satunya lalu lepas untuk membukanya
+/// (aturan sentuhannya di [QuickMenuGesture]).
 class _AttendButton extends ConsumerStatefulWidget {
   const _AttendButton({required this.onAttend});
 
@@ -694,22 +695,20 @@ class _AttendButton extends ConsumerStatefulWidget {
 
 class _AttendButtonState extends ConsumerState<_AttendButton> {
   final _circle = GlobalKey();
-  QuickMenuDrag? _drag;
   bool _down = false;
 
+  /// Pusat lingkaran tombol (koordinat global) sebagai pusat menu.
   Offset _origin() {
     final box = _circle.currentContext!.findRenderObject()! as RenderBox;
     return box.localToGlobal(box.size.center(Offset.zero));
   }
 
-  Future<void> _openMenu({bool withDrag = true}) async {
-    final drag = withDrag ? QuickMenuDrag() : null;
-    _drag = drag;
-    setState(() => _down = false);
-    final picked = await showQuickCameraMenu(context, origin: _origin(), drag: drag);
-    _drag = null;
-    drag?.dispose();
-    if (!mounted || picked == null) return;
+  void _attend() {
+    HapticFeedback.mediumImpact();
+    widget.onAttend();
+  }
+
+  Future<void> _open(QuickCameraAction picked) async {
     switch (picked) {
       case QuickCameraAction.attendance:
         widget.onAttend();
@@ -720,29 +719,27 @@ class _AttendButtonState extends ConsumerState<_AttendButton> {
     }
   }
 
+  /// Pembaca layar: menu dibuka tanpa seret dan dipilih dengan ketukan.
+  Future<void> _openForScreenReader() async {
+    final picked = await showQuickCameraMenu(context, origin: _origin());
+    if (mounted && picked != null) await _open(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
     return Semantics(
       button: true,
       label: 'Absen sekarang',
+      onTap: widget.onAttend,
       onLongPressHint: 'buka pintasan kamera',
-      onLongPress: () => _openMenu(withDrag: false),
+      onLongPress: _openForScreenReader,
       excludeSemantics: true,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _down = true),
-        onTapCancel: () => setState(() => _down = false),
-        onTap: () {
-          setState(() => _down = false);
-          HapticFeedback.mediumImpact();
-          widget.onAttend();
-        },
-        onLongPressStart: (_) => _openMenu(),
-        onLongPressMoveUpdate: (d) => _drag?.pointer.value = d.globalPosition,
-        onLongPressEnd: (d) {
-          _drag?.pointer.value = d.globalPosition;
-          _drag?.released.value = true;
-        },
+      child: QuickMenuGesture(
+        origin: _origin,
+        onTap: _attend,
+        onPicked: _open,
+        onPressed: (v) => setState(() => _down = v),
         child: AnimatedScale(
           scale: _down ? 0.94 : 1,
           duration: Motion.of(context, const Duration(milliseconds: 120)),
