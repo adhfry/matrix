@@ -107,24 +107,20 @@ void main() {
     )!;
     expect(quad[0].dx, closeTo(94, 0.01));
     expect(quad[2].dy, closeTo(306, 0.01));
-    expect(
-      quadOnScreen(const Barcode(rawValue: 'x'), screen, screen),
-      isNull,
-    );
+    expect(quadOnScreen(const Barcode(rawValue: 'x'), screen, screen), isNull);
     expect(lerpQuad(idle, quad, 1), quad);
   });
 
-  Future<_FakeRepo> pumpSheet(
-    WidgetTester tester,
-    StockBatchInfo batch,
-  ) async {
+  Future<_FakeRepo> pumpSheet(WidgetTester tester, StockBatchInfo batch) async {
     final repo = _FakeRepo();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [stockRepositoryProvider.overrideWithValue(repo)],
         child: MaterialApp(
           theme: AppTheme.light(),
-          home: Scaffold(body: StockTakeSheet(code: 'qr', batch: batch)),
+          home: Scaffold(
+            body: StockTakeSheet(code: 'qr', batch: batch),
+          ),
         ),
       ),
     );
@@ -132,25 +128,26 @@ void main() {
     return repo;
   }
 
-  testWidgets('lembar ambil: jumlah dibatasi sisa stok, catatan ikut terkirim', (
-    tester,
-  ) async {
-    final repo = await pumpSheet(tester, _batch(remaining: 2));
-    expect(find.text('Reagen HIV Rapid'), findsOneWidget);
-    expect(find.text('2 Test'), findsOneWidget);
-    expect(find.text('Ambil 1 Test'), findsOneWidget);
+  testWidgets(
+    'lembar ambil: jumlah dibatasi sisa stok, catatan ikut terkirim',
+    (tester) async {
+      final repo = await pumpSheet(tester, _batch(remaining: 2));
+      expect(find.text('Reagen HIV Rapid'), findsOneWidget);
+      expect(find.text('2 Test'), findsOneWidget);
+      expect(find.text('Ambil 1 Test'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Tambah jumlah'));
-    await tester.pump();
-    await tester.tap(find.byTooltip('Tambah jumlah')); // sudah maksimal
-    await tester.pump();
-    expect(find.text('Ambil 2 Test'), findsOneWidget);
+      await tester.tap(find.byTooltip('Tambah jumlah'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Tambah jumlah')); // sudah maksimal
+      await tester.pump();
+      expect(find.text('Ambil 2 Test'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField), 'Pemeriksaan VCT');
-    await tester.tap(find.text('Ambil 2 Test'));
-    await tester.pumpAndSettle();
-    expect(repo.takes.single, (2, 'Pemeriksaan VCT', false));
-  });
+      await tester.enterText(find.byType(TextField), 'Pemeriksaan VCT');
+      await tester.tap(find.text('Ambil 2 Test'));
+      await tester.pumpAndSettle();
+      expect(repo.takes.single, (2, 'Pemeriksaan VCT', false));
+    },
+  );
 
   testWidgets('lembar ambil: batch kedaluwarsa diberi peringatan', (
     tester,
@@ -168,7 +165,12 @@ void main() {
     final history = StockHistory(
       total: 3,
       summary: const [
-        StockSummaryRow(item: 'Reagen HIV Rapid', total: 3, times: 2, unit: 'Test'),
+        StockSummaryRow(
+          item: 'Reagen HIV Rapid',
+          total: 3,
+          times: 2,
+          unit: 'Test',
+        ),
       ],
       items: [
         StockHistoryItem(
@@ -255,41 +257,42 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('Scan Cepat: langsung -1, QR yang masih di bingkai tidak dihitung lagi', (
-      tester,
-    ) async {
-      await pumpScreen(tester, quick: true);
-      expect(find.text('Scan Cepat'), findsOneWidget);
+    testWidgets(
+      'Scan Cepat: langsung -1, QR yang masih di bingkai tidak dihitung lagi',
+      (tester) async {
+        await pumpScreen(tester, quick: true);
+        expect(find.text('Scan Cepat'), findsOneWidget);
 
-      detect(_capture('qr-a'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(repo.takes, [(1, null, true)]);
-      expect(beeps, 1);
-      expect(find.text('Diambil di sesi ini: 1 unit'), findsOneWidget);
-      expect(find.text('Reagen HIV Rapid'), findsOneWidget);
+        detect(_capture('qr-a'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(repo.takes, [(1, null, true)]);
+        expect(beeps, 1);
+        expect(find.text('Diambil di sesi ini: 1 unit'), findsOneWidget);
+        expect(find.text('Reagen HIV Rapid'), findsOneWidget);
 
-      // Masih terlihat terus: tidak dihitung lagi.
-      now = now.add(const Duration(milliseconds: 300));
-      detect(_capture('qr-a'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(repo.takes, hasLength(1));
+        // Masih terlihat terus: tidak dihitung lagi.
+        now = now.add(const Duration(milliseconds: 300));
+        detect(_capture('qr-a'));
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(repo.takes, hasLength(1));
 
-      // Keluar bingkai (bingkai dilepas) lalu diarahkan lagi: dihitung.
-      await tester.pump(const Duration(milliseconds: 600));
-      now = now.add(const Duration(seconds: 2));
-      detect(_capture('qr-a'));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(repo.takes, hasLength(2));
-      expect(beeps, 2);
-      expect(find.text('Diambil di sesi ini: 2 unit'), findsOneWidget);
+        // Keluar bingkai (bingkai dilepas) lalu diarahkan lagi: dihitung.
+        await tester.pump(const Duration(milliseconds: 600));
+        now = now.add(const Duration(seconds: 2));
+        detect(_capture('qr-a'));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(repo.takes, hasLength(2));
+        expect(beeps, 2);
+        expect(find.text('Diambil di sesi ini: 2 unit'), findsOneWidget);
 
-      await tester.tap(find.text('Batalkan'));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(repo.undone, [11]);
-      expect(find.text('Diambil di sesi ini: 1 unit'), findsOneWidget);
-      await tester.pump(const Duration(seconds: 5));
-    });
+        await tester.tap(find.text('Batalkan'));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(repo.undone, [11]);
+        expect(find.text('Diambil di sesi ini: 1 unit'), findsOneWidget);
+        await tester.pump(const Duration(seconds: 5));
+      },
+    );
 
     testWidgets('mode biasa: QR terbaca membuka lembar ambil', (tester) async {
       await pumpScreen(tester, quick: false);
@@ -310,7 +313,10 @@ void main() {
       await pumpScreen(tester, quick: false);
       await tester.tap(find.bySemanticsLabel('Tentang Scan Cepat'));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('langsung mengurangi stok 1 unit'), findsWidgets);
+      expect(
+        find.textContaining('langsung mengurangi stok 1 unit'),
+        findsWidgets,
+      );
       await tester.pump(const Duration(seconds: 11));
     });
   });

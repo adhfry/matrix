@@ -22,6 +22,9 @@ enum MxGlyph {
 
   /// Tabung reagen; pita aksen = batas cairan (mengambil barang lewat scan QR).
   barang,
+
+  /// Map berkas; pita aksen = label di depan map (berkas pribadi pegawai).
+  berkas,
 }
 
 class MxGlyphIcon extends StatelessWidget {
@@ -223,6 +226,23 @@ class _GlyphPainter extends CustomPainter {
         );
         canvas.drawLine(o(10.4, 12.2), o(13.6, 12.2), rib);
         canvas.drawCircle(o(12, 16.4), 1.1 * k, ribFill);
+      case MxGlyph.berkas:
+        canvas.drawPath(
+          Path()
+            ..moveTo(3 * k, 18.6 * k)
+            ..lineTo(3 * k, 5.6 * k)
+            ..quadraticBezierTo(3 * k, 4.2 * k, 4.4 * k, 4.2 * k)
+            ..lineTo(9 * k, 4.2 * k)
+            ..lineTo(11 * k, 6.6 * k)
+            ..lineTo(19.6 * k, 6.6 * k)
+            ..quadraticBezierTo(21 * k, 6.6 * k, 21 * k, 8 * k)
+            ..lineTo(21 * k, 18.6 * k)
+            ..quadraticBezierTo(21 * k, 20 * k, 19.6 * k, 20 * k)
+            ..lineTo(4.4 * k, 20 * k)
+            ..quadraticBezierTo(3 * k, 20 * k, 3 * k, 18.6 * k),
+          main,
+        );
+        canvas.drawLine(o(7.4, 13.4), o(16.6, 13.4), rib);
     }
   }
 

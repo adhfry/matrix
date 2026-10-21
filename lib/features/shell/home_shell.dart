@@ -16,6 +16,8 @@ import '../../core/widgets/matrix_glyphs.dart';
 import '../../core/widgets/mx.dart';
 import '../identity/data/identity_repository.dart';
 import '../identity/ui/identity_screen.dart';
+import '../documents/data/document_repository.dart';
+import '../documents/ui/documents_screen.dart';
 import '../account/ui/account_screen.dart';
 import '../attendance/ui/attendance_launcher.dart';
 import '../auth/session.dart';
@@ -257,7 +259,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (go == true) await push.requestPermission();
   }
 
-  /// Sekali per hari: bila data diri belum 100%, minta dilengkapi.
+  /// Sekali per hari: bila data diri belum 100%, minta dilengkapi; bila sudah,
+  /// gantian berkas pribadi yang belum lengkap.
   Future<void> _maybePromptIdentity() async {
     final store = ref.read(secureStoreProvider);
     final now = DateTime.now();
@@ -269,8 +272,49 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     } on ApiException {
       return; // coba lagi saat aplikasi dibuka berikutnya
     }
+    if (!data.complete) {
+      await store.setIdentityPromptDate(today);
+      if (!mounted) return;
+      final go = await _completionSheet(
+        percent: data.completeness,
+        title: 'Lengkapi data diri Anda',
+        message:
+            'Data kepegawaian harus lengkap dan sesuai KTP: ${data.missing.length} kolom belum diisi, termasuk ${data.missing.take(2).map((m) => m.split(': ').last).join(' dan ')}. Kolom yang memang tidak Anda miliki cukup dicentang "Tidak memiliki".',
+      );
+      if (go && mounted) {
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute<bool>(builder: (_) => const IdentityScreen()));
+      }
+      return;
+    }
+
+    DocOverview docs;
+    try {
+      docs = await ref.read(documentRepositoryProvider).overview();
+    } on ApiException {
+      return;
+    }
     await store.setIdentityPromptDate(today);
-    if (data.complete || !mounted) return;
+    if (docs.complete || !mounted) return;
+    final go = await _completionSheet(
+      percent: docs.percent,
+      title: 'Lengkapi berkas pribadi',
+      message:
+          '${docs.total - docs.done} jenis berkas belum diisi, mis. ijazah, SK, atau SIP. Unggah dari kamera, galeri, atau PDF; yang memang tidak Anda punya cukup ditandai "Tidak memiliki".',
+    );
+    if (go && mounted) {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const DocumentsScreen()));
+    }
+  }
+
+  Future<bool> _completionSheet({
+    required int percent,
+    required String title,
+    required String message,
+  }) async {
     final go = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -284,28 +328,23 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               Row(
                 children: [
                   RingProgress(
-                    value: data.completeness / 100,
+                    value: percent / 100,
                     size: 64,
                     stroke: 7,
                     center: Text(
-                      '${data.completeness}%',
+                      '$percent%',
                       style: ctx.text.labelLarge?.copyWith(
                         fontFeatures: tabular,
                       ),
                     ),
                   ),
                   const SizedBox(width: Sp.lg),
-                  Expanded(
-                    child: Text(
-                      'Lengkapi data diri Anda',
-                      style: ctx.text.titleMedium,
-                    ),
-                  ),
+                  Expanded(child: Text(title, style: ctx.text.titleMedium)),
                 ],
               ),
               const SizedBox(height: Sp.md),
               Text(
-                'Data kepegawaian harus lengkap dan sesuai KTP: ${data.missing.length} kolom belum diisi, termasuk ${data.missing.take(2).map((m) => m.split(': ').last).join(' dan ')}. Kolom yang memang tidak Anda miliki cukup dicentang "Tidak memiliki".',
+                message,
                 style: ctx.text.bodyMedium?.copyWith(color: ctx.mx.inkMuted),
               ),
               const SizedBox(height: Sp.xl),
@@ -329,11 +368,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ),
       ),
     );
-    if (go == true && mounted) {
-      await Navigator.of(
-        context,
-      ).push(MaterialPageRoute<bool>(builder: (_) => const IdentityScreen()));
-    }
+    return go == true;
   }
 
   Future<void> _maybeOfferPin() async {

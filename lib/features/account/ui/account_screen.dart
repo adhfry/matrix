@@ -20,6 +20,8 @@ import '../../nfc_tap/ui/nfc_tap_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notifications_screen.dart';
 import '../../identity/data/identity_repository.dart';
+import '../../documents/data/document_repository.dart';
+import '../../documents/ui/documents_screen.dart';
 import '../../identity/ui/identity_screen.dart';
 import '../../../core/widgets/matrix_mark.dart';
 import '../../security/pin_service.dart';
@@ -242,6 +244,39 @@ class AccountScreen extends ConsumerWidget {
                                     );
                                     ref.invalidate(identityProvider);
                                   },
+                                );
+                              },
+                            ),
+                            Builder(
+                              builder: (context) {
+                                final docs = ref.watch(documentsProvider).value;
+                                return ListTile(
+                                  leading: IconBadge(
+                                    Icons.folder_outlined,
+                                    size: 36,
+                                    background: context.hues.sky.bg,
+                                    color: context.hues.sky.fg,
+                                  ),
+                                  title: const Text('Berkas pribadi'),
+                                  subtitle: Text(
+                                    docs == null
+                                        ? 'CV, ijazah, SK, SIP, dan lainnya'
+                                        : (docs.complete
+                                              ? 'Lengkap'
+                                              : '${docs.done} dari ${docs.total} jenis terisi'),
+                                  ),
+                                  trailing: docs == null || docs.complete
+                                      ? const Icon(Icons.chevron_right_rounded)
+                                      : StatusPill(
+                                          '${docs.percent}%',
+                                          tone: Tone.pending,
+                                          dense: true,
+                                        ),
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const DocumentsScreen(),
+                                    ),
+                                  ),
                                 );
                               },
                             ),

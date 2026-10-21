@@ -18,6 +18,7 @@ import '../../attendance/data/attendance_models.dart';
 import '../../attendance/data/attendance_repository.dart';
 import '../../attendance/logic/attendance_gate.dart';
 import '../../attendance/ui/attendance_launcher.dart';
+import '../../documents/ui/documents_screen.dart';
 import '../../auth/session.dart';
 import '../../kinerja/data/kinerja_repository.dart';
 import '../../kinerja/ui/kinerja_screen.dart';
@@ -1050,7 +1051,13 @@ class _Services extends ConsumerWidget {
                 hue: h.orange,
                 onTap: () => push(const StockScanScreen()),
               ),
-              const Expanded(child: SizedBox.shrink()),
+              _ServiceTile(
+                glyph: MxGlyph.berkas,
+                title: 'Berkas',
+                subtitle: 'CV, ijazah, SK, SIP',
+                hue: h.indigo,
+                onTap: () => push(const DocumentsScreen()),
+              ),
             ],
           ])
             Padding(
