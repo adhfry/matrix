@@ -8,6 +8,9 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../app/app.dart';
+import '../../features/approvals/ui/decision_sheet.dart';
+import '../../features/calls/call_controller.dart';
 import '../../features/attendance/data/attendance_repository.dart';
 import '../../features/auth/session.dart';
 import '../../features/kinerja/data/kinerja_repository.dart';
@@ -19,69 +22,10 @@ import '../../features/schedule/data/schedule_repository.dart';
 import '../../features/schedule/ui/schedule_screen.dart';
 import '../../features/swap/data/swap_repository.dart';
 import '../../features/shell/home_shell.dart';
+import 'interactive_push.dart';
+import 'push_channels.dart';
 
 enum PushPermission { granted, denied, notDetermined, unavailable }
-
-/// Kanal Android = kategori notifikasi server; nama tampil di Pengaturan
-/// Android sehingga pegawai juga bisa mengatur suara per kanal dari sana.
-/// Kanal Android = "mx_" + kategori server, semuanya bersuara "Maaatriks"
-/// (res/raw/matrix_voice, sama dengan suara pembuka). Suara melekat pada
-/// kanal sejak dibuat, jadi kanal lama (tanpa awalan, suara bawaan)
-/// dihapus dan diganti kanal baru ini.
-const _channelPrefix = 'mx_';
-const _sound = RawResourceAndroidNotificationSound('matrix_voice');
-
-const _channels = <String, (String, String, Importance)>{
-  'absensi': (
-    'Pengingat absen',
-    'Jendela check-in/check-out dibuka atau hampir tutup',
-    Importance.high,
-  ),
-  'jadwal': (
-    'Jadwal',
-    'Jadwal terbit dan perubahan shift',
-    Importance.defaultImportance,
-  ),
-  'jaspel': (
-    'Jaspel',
-    'Jaspel terbit dan status klaim',
-    Importance.defaultImportance,
-  ),
-  'izin': (
-    'Izin & cuti',
-    'Keputusan pengajuan izin, sakit, cuti',
-    Importance.defaultImportance,
-  ),
-  'tukar_jadwal': (
-    'Tukar jadwal',
-    'Permintaan dan keputusan tukar jadwal',
-    Importance.defaultImportance,
-  ),
-  'chat': ('Chat', 'Pesan baru di chat SiLAKES', Importance.high),
-  'chat_semua': (
-    'Chat semua pengguna',
-    'Pesan di percakapan seluruh staf',
-    Importance.low,
-  ),
-  'rapat': ('Rapat', 'Undangan dan pengingat SiRapat', Importance.high),
-  'persetujuan': (
-    'Persetujuan admin',
-    'Pengajuan pegawai dan hasil lab yang menunggu keputusan admin',
-    Importance.high,
-  ),
-  'sistem': (
-    'Pengumuman',
-    'Informasi dari admin SiLAKES',
-    Importance.defaultImportance,
-  ),
-};
-
-const _icon = 'ic_stat_matrix';
-
-@pragma('vm:entry-point')
-Future<void> _onBackgroundMessage(RemoteMessage message) async {
-  // Saat aplikasi di latar, Android menampilkan notifikasi FCM sendiri.
-}
 
 /// Push FCM untuk MATRIX: daftar token ke SiLAKES, tampilkan notifikasi saat
 /// aplikasi terbuka, buka tujuan saat diketuk, dan segarkan data terkait.
@@ -103,7 +47,7 @@ class PushService {
   static Future<void> bootstrap() async {
     try {
       await Firebase.initializeApp();
-      FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
+      FirebaseMessaging.onBackgroundMessage(onBackgroundPush);
       _firebaseReady = true;
     } catch (e) {
       debugPrint('[push] Firebase tidak aktif: $e');
@@ -148,8 +92,9 @@ class PushService {
     final initial = await fm.getInitialMessage();
     if (initial != null) _pending = initial.data;
     final launch = await _local.getNotificationAppLaunchDetails();
-    if (launch?.didNotificationLaunchApp == true) {
-      _pending = _decode(launch!.notificationResponse?.payload) ?? _pending;
+    final launchResponse = launch?.notificationResponse;
+    if (launch?.didNotificationLaunchApp == true && launchResponse != null) {
+      _pending = _tapped(launchResponse) ?? _pending;
     }
 
     if (await permission() == PushPermission.granted) {
@@ -228,27 +173,27 @@ class PushService {
 
   Future<void> _initLocal() async {
     await _local.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings(_icon),
-      ),
+      settings: pushInitSettings,
       onDidReceiveNotificationResponse: (r) {
-        final data = _decode(r.payload);
+        final data = _tapped(r);
         if (data != null) open(data);
       },
+      onDidReceiveBackgroundNotificationResponse: onBackgroundPushAction,
     );
     final android = _local
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
-    for (final e in _channels.entries) {
+    await android?.createNotificationChannel(callRingChannel());
+    for (final e in pushChannels.entries) {
       await android?.deleteNotificationChannel(channelId: e.key);
       await android?.createNotificationChannel(
         AndroidNotificationChannel(
-          '$_channelPrefix${e.key}',
+          '$pushChannelPrefix${e.key}',
           e.value.$1,
           description: e.value.$2,
           importance: e.value.$3,
-          sound: _sound,
+          sound: pushSound,
         ),
       );
     }
@@ -257,38 +202,88 @@ class PushService {
   /// Saat aplikasi terbuka FCM tidak menampilkan notifikasi; tampilkan sendiri
   /// dengan kanal & tag yang sama (pesan beruntun satu percakapan menyatu).
   Future<void> _onForeground(RemoteMessage m) async {
+    if (isCallPush(m.data)) return _onCallPush(m.data);
     _refreshFor(m.data);
-    final n = m.notification;
-    if (n == null) return;
     // Pesan untuk percakapan yang sedang terbuka sudah tampil di layar.
     final convId = int.tryParse('${m.data['conversation_id'] ?? ''}');
     if (convId != null && convId == _ref.read(openConversationProvider)) return;
-    final category = (m.data['category'] as String?) ?? 'sistem';
-    final channel = _channels[category] ?? _channels['sistem']!;
+    if (isInteractivePush(m.data)) {
+      await showInteractivePush(_local, m.data);
+      return;
+    }
+    final n = m.notification;
+    if (n == null) return;
     final tag = n.android?.tag ?? m.data['type'] as String?;
     await _local.show(
       id: (tag ?? m.messageId ?? n.title ?? '').hashCode,
       title: n.title,
       body: n.body,
       notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          '$_channelPrefix${_channels.containsKey(category) ? category : 'sistem'}',
-          channel.$1,
-          channelDescription: channel.$2,
-          importance: channel.$3,
-          sound: _sound,
-          priority: channel.$3 == Importance.high
-              ? Priority.high
-              : Priority.defaultPriority,
-          icon: _icon,
-          color: const Color(0xFF047857),
+        android: pushDetails(
+          '${m.data['category'] ?? 'sistem'}',
           tag: tag,
-          styleInformation: BigTextStyleInformation(n.body ?? ''),
+          style: BigTextStyleInformation(n.body ?? ''),
         ),
       ),
       payload: jsonEncode(m.data),
     );
   }
+
+  /// Panggilan saat aplikasi terbuka: notifikasi berdering (nada) + layar panggilan.
+  Future<void> _onCallPush(Map<String, dynamic> data) async {
+    final callId = int.tryParse('${data['call_id'] ?? ''}');
+    if (callId == null) return;
+    final calls = _ref.read(callControllerProvider.notifier);
+    if (data['type'] == 'call_signal') {
+      await showInteractivePush(_local, data);
+      calls.signal(callId, '${data['signal'] ?? ''}');
+      return;
+    }
+    await showIncomingCall(_local, data);
+    await calls.open(callId);
+  }
+
+  /// Aplikasi dibuka dari notifikasi panggilan saat masih terkunci PIN:
+  /// panggilan tidak menunggu PIN (layar panggilan tidak menampilkan data lain).
+  Future<void> openLaunchCall() async {
+    if (!_firebaseReady) return;
+    try {
+      await _local.initialize(
+        settings: pushInitSettings,
+        onDidReceiveNotificationResponse: (r) {
+          final data = _tapped(r);
+          if (data != null) open(data);
+        },
+        onDidReceiveBackgroundNotificationResponse: onBackgroundPushAction,
+      );
+      final launch = await _local.getNotificationAppLaunchDetails();
+      final r = launch?.notificationResponse;
+      final data = launch?.didNotificationLaunchApp == true && r != null ? _tapped(r) : null;
+      if (data != null && isCallPush(data)) await _openCall(data);
+    } catch (e) {
+      debugPrint('[push] buka panggilan gagal: $e');
+    }
+  }
+
+  Future<void> _openCall(Map<String, dynamic> data) async {
+    final callId = int.tryParse('${data['call_id'] ?? ''}');
+    if (callId == null || data['type'] != 'call_invite') return;
+    final action = data[_tapAction] as String?;
+    await _ref.read(callControllerProvider.notifier).open(callId, action: action);
+  }
+
+  /// Data notifikasi yang diketuk; tombol (Setujui/Tolak) ikut dicatat di
+  /// [_tapAction] supaya [open] tahu keputusan apa yang diminta.
+  static Map<String, dynamic>? _tapped(NotificationResponse r) {
+    final data = decodePushPayload(r.payload);
+    if (data == null) return null;
+    final action = r.actionId;
+    return action == null || action.isEmpty
+        ? data
+        : {...data, _tapAction: action};
+  }
+
+  static const _tapAction = '_tap_action';
 
   /// Data di layar ikut berubah begitu notifikasi masuk.
   void _refreshFor(Map<String, dynamic> data) {
@@ -316,7 +311,16 @@ class PushService {
 
   /// Buka tujuan notifikasi; bila sesi belum siap (terkunci PIN), ditunda.
   Future<void> open(Map<String, dynamic> data) async {
-    if (_ref.read(sessionProvider) is! SessionReady) {
+    final session = _ref.read(sessionProvider);
+    if (isCallPush(data) && (session is SessionReady || session is SessionLocked)) {
+      await _openCall(data);
+      return;
+    }
+    if (data['route'] == 'call') {
+      _ref.read(callControllerProvider.notifier).showScreen();
+      return;
+    }
+    if (session is! SessionReady) {
       _pending = data;
       return;
     }
@@ -330,22 +334,30 @@ class PushService {
             .catchError((_) {}),
       );
     }
+    final kind = data['decision_kind'] as String?;
+    final decisionId = int.tryParse('${data['decision_id'] ?? ''}');
+    final context = rootNavigatorKey.currentContext;
+    if (kind != null && decisionId != null && context != null) {
+      final action = data[_tapAction];
+      await showDecisionSheet(
+        context,
+        kind: kind,
+        id: decisionId,
+        intent: switch (action) {
+          PushAction.approve => DecisionIntent.approve,
+          PushAction.reject => DecisionIntent.reject,
+          _ => null,
+        },
+        fromNotification: true,
+      );
+      return;
+    }
     await openNotificationRoute(
       goTab: (t) => _ref.read(tabProvider.notifier).go(t),
       jumpMonth: (m) => _ref.read(scheduleJumpProvider.notifier).go(m),
       route: data['route'] as String?,
       webUrl: data['web_url'] as String?,
     );
-  }
-
-  static Map<String, dynamic>? _decode(String? payload) {
-    if (payload == null || payload.isEmpty) return null;
-    try {
-      final v = jsonDecode(payload);
-      return v is Map<String, dynamic> ? v : null;
-    } catch (_) {
-      return null;
-    }
   }
 }
 

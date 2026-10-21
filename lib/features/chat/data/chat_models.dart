@@ -170,11 +170,12 @@ class ChatMessage {
     this.replyTo,
     this.pending = false,
     this.localImagePath,
+    this.callStatus,
   });
 
   final int id;
 
-  /// text | image | audio
+  /// text | image | audio | call (riwayat panggilan suara)
   final String type;
   final String? body;
   final int senderId;
@@ -195,6 +196,9 @@ class ChatMessage {
   /// Gambar lokal selama unggahan berjalan.
   final String? localImagePath;
 
+  /// Riwayat panggilan: ended | missed | declined | cancelled.
+  final String? callStatus;
+
   String? get imageUrl => storageUrl(imagePath);
   String? get audioUrl => storageUrl(audioPath);
 
@@ -213,6 +217,7 @@ class ChatMessage {
     isDeleted: J.b(j['is_deleted']),
     deletedAt: J.dt(j['deleted_at'])?.toLocal(),
     replyTo: j['reply_to'] is Map ? ReplyPreview.fromJson(J.m(j['reply_to'])) : null,
+    callStatus: J.s(J.m(j['call'])['status']),
   );
 
   /// Bentuk yang sama dengan respons Laravel, untuk disiarkan lewat Phoenix.
@@ -262,6 +267,7 @@ class ChatMessage {
     replyTo: r,
     pending: pending,
     localImagePath: localImagePath,
+    callStatus: callStatus,
   );
 }
 

@@ -10,8 +10,15 @@
     
     <!-- Camera Permissions -->
     <uses-permission android:name="android.permission.CAMERA"/>
-    <!-- Pesan suara di chat SiLAKES. -->
+    <!-- Pesan suara & panggilan suara di chat SiLAKES. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!-- Panggilan masuk tampil penuh layar; panggilan tetap tersambung saat layar mati. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     
     <!-- Storage Permissions -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
@@ -110,6 +117,14 @@
                 android:name="android.nfc.cardemulation.host_apdu_service"
                 android:resource="@xml/matrix_tap_apdu"/>
         </service>
+        <!-- Tombol notifikasi yang diproses tanpa membuka aplikasi (Balas chat, Tandai dibaca). -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"/>
+        <!-- Layanan latar selama panggilan suara (mikrofon tetap aktif saat aplikasi diminimalkan). -->
+        <service
+            android:name="com.dexterous.flutterlocalnotifications.ForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="microphone"/>
         <!-- FCM: kanal, ikon & warna bawaan saat aplikasi di latar (kanal = kategori notifikasi server). -->
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="mx_sistem"/>
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_matrix"/>

@@ -16,13 +16,15 @@ class ChatRepository {
   Future<List<ChatConversation>> conversations() async =>
       J.l(await _api.get('$_base/conversations')).map(ChatConversation.fromJson).toList();
 
-  /// Halaman 1 = pesan terbaru. Urutan hasil: lama -> baru.
-  Future<({List<ChatMessage> items, bool hasMore})> messages(int conversationId, {int page = 1}) async {
+  /// Halaman 1 = pesan terbaru. Urutan hasil: lama -> baru. [lastReadAt] =
+  /// pembacaan terakhir saya sebelum dibuka (batas "Pesan baru").
+  Future<({List<ChatMessage> items, bool hasMore, DateTime? lastReadAt})> messages(int conversationId, {int page = 1}) async {
     final env = await _api.getEnvelope('$_base/conversations/$conversationId/messages', query: {'page': page});
     final meta = J.m(env['meta']);
     return (
       items: J.l(env['data']).map(ChatMessage.fromJson).toList(),
       hasMore: J.i(meta['current_page'], 1) < J.i(meta['last_page'], 1),
+      lastReadAt: J.dt(meta['last_read_at'])?.toLocal(),
     );
   }
 

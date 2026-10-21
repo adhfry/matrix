@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/push/push_service.dart';
 import '../core/storage/secure_store.dart';
+import '../features/calls/call_controller.dart';
 import '../features/auth/session.dart';
 import '../core/widgets/matrix_mark.dart';
 import '../features/onboarding/onboarding_screen.dart';
@@ -52,6 +54,12 @@ class MatrixApp extends ConsumerWidget {
     ref.listen<SessionState>(sessionProvider, (prev, next) {
       if (prev is SessionReady && next is! SessionReady) {
         rootNavigatorKey.currentState?.popUntil((r) => r.isFirst);
+        // Panggilan tetap berjalan saat aplikasi terkunci; tampilkan lagi layarnya.
+        if (next is SessionLocked) ref.read(callControllerProvider.notifier).showScreen();
+      }
+      // Dibuka dari notifikasi panggilan: angkat/tolak tanpa menunggu PIN.
+      if (prev is SessionBooting && (next is SessionLocked || next is SessionReady)) {
+        ref.read(pushServiceProvider).openLaunchCall();
       }
     });
     return MaterialApp(

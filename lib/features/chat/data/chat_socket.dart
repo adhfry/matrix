@@ -49,6 +49,32 @@ class ChatSocket {
     }
   }
 
+  /// Sambung sebentar, kirim [events], lalu tutup. Dipakai balasan dari
+  /// notifikasi (isolate latar) supaya penerima yang sedang membuka
+  /// percakapan langsung melihatnya. Gagal tersambung diabaikan.
+  static Future<void> relay({
+    required String topic,
+    required String userId,
+    required List<(String, Map<String, dynamic>)> events,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final s = ChatSocket(topic: topic, userId: userId)..connect();
+    try {
+      final until = DateTime.now().add(timeout);
+      while (!s.joined && DateTime.now().isBefore(until)) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (!s.joined) return;
+      for (final (event, payload) in events) {
+        s.push(event, payload);
+      }
+      // Beri waktu bingkai terkirim sebelum soket ditutup.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    } finally {
+      s.dispose();
+    }
+  }
+
   void push(String event, Map<String, dynamic> payload) {
     if (_joinRef == null) return;
     _send(_joinRef, topic, event, payload);

@@ -24,6 +24,7 @@ import '../scanner/ui/scan_camera_screen.dart';
 import '../stock/ui/stock_scan_screen.dart';
 import 'quick_camera_menu.dart';
 import '../auth/session.dart';
+import '../calls/call_controller.dart';
 import '../home/ui/home_screen.dart';
 import '../kinerja/ui/kinerja_screen.dart';
 import '../schedule/ui/schedule_screen.dart';
@@ -69,6 +70,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       await _maybeAskPush();
       await _maybeAskAttendancePerms();
       await ref.read(pushServiceProvider).attach();
+      await ref.read(callControllerProvider.notifier).checkIncoming();
       _warmGps();
       await _maybeOfferUpdate();
     });

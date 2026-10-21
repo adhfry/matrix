@@ -13,6 +13,7 @@ import 'package:record/record.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../core/widgets/mx.dart';
 import '../../auth/session.dart';
+import '../../calls/call_controller.dart';
 import '../data/chat_models.dart';
 import '../data/chat_repository.dart';
 import '../data/chat_socket.dart';
@@ -54,6 +55,12 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
   final _typing = <int, String>{};
   final _typingTimers = <int, Timer>{};
   int? _highlight;
+
+  // Batas "Pesan baru", ditetapkan sekali saat percakapan dibuka.
+  int? _newBefore;
+  final _dividerKey = GlobalKey();
+  bool _atBottom = true;
+  int _unseen = 0;
 
   ChatSocket? _socket;
   StreamSubscription<({String event, Map<String, dynamic> payload})>? _socketSub;
@@ -133,6 +140,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
       final res = await _repo.messages(widget.conversationId);
       final reads = await _repo.readState(widget.conversationId);
       if (!mounted) return;
+      final firstLoad = !quiet || _messages.isEmpty;
       setState(() {
         _messages
           ..removeWhere((m) => !m.pending)
@@ -143,7 +151,21 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
           ..clear()
           ..addAll(reads);
         _loading = false;
+        if (firstLoad) {
+          final last = res.lastReadAt;
+          _newBefore = res.items
+              .where((m) => m.senderId != _me && (last == null || m.createdAt.isAfter(last)))
+              .firstOrNull
+              ?.id;
+        }
       });
+      // Buka di pesan pertama yang belum dibaca, bukan langsung di dasar.
+      if (firstLoad && _newBefore != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final ctx = _dividerKey.currentContext;
+          if (ctx != null) Scrollable.ensureVisible(ctx, alignment: 0.15);
+        });
+      }
       _markRead();
     } catch (e) {
       if (!mounted) return;
@@ -155,8 +177,16 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
   }
 
   void _onScroll() {
-    // Daftar terbalik: ujung atas riwayat = maxScrollExtent.
-    if (_hasMore && !_loadingOlder && _scroll.position.pixels > _scroll.position.maxScrollExtent - 240) {
+    final pos = _scroll.position;
+    // Daftar terbalik: offset 0 = pesan terbaru, maxScrollExtent = ujung riwayat.
+    final atBottom = pos.pixels < 160;
+    if (atBottom != _atBottom) {
+      setState(() {
+        _atBottom = atBottom;
+        if (atBottom) _unseen = 0;
+      });
+    }
+    if (_hasMore && !_loadingOlder && pos.pixels > pos.maxScrollExtent - 240) {
       _loadOlder();
     }
   }
@@ -198,6 +228,8 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
         setState(() {
           _messages.add(m);
           _clearTyping(m.senderId);
+          // Sedang membaca pesan lama: tidak ditarik ke bawah, cukup dihitung.
+          if (!_atBottom && m.senderId != _me) _unseen++;
         });
         if (m.senderId != _me) {
           HapticFeedback.selectionClick();
@@ -596,7 +628,8 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
 
   void _jumpToBottom() {
     if (!_scroll.hasClients) return;
-    _scroll.animateTo(0, duration: Motion.of(context, Motion.standard), curve: Motion.curve);
+    setState(() => _unseen = 0);
+    _scroll.animateTo(0, duration: Motion.of(context, Motion.emphasis), curve: Motion.curve);
   }
 
   // ---------------------------------------------------------------- tampilan
@@ -615,6 +648,16 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
   Widget build(BuildContext context) {
     final c = context.mx;
     final conv = _conv;
+    // Panggilan di percakapan ini selesai: server menambahkan riwayatnya.
+    ref.listen(callControllerProvider, (prev, next) {
+      if (prev?.phase != CallPhase.ended &&
+          next.phase == CallPhase.ended &&
+          next.conversationId == widget.conversationId) {
+        Future<void>.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) _load(quiet: true);
+        });
+      }
+    });
     return Scaffold(
       backgroundColor: c.canvas,
       appBar: AppBar(
@@ -640,10 +683,38 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
             ),
           ],
         ),
+        actions: [
+          if (conv != null && conv.type != 'all')
+            IconButton(
+              tooltip: conv.isDirect ? 'Panggilan suara' : 'Panggilan suara grup',
+              icon: const Icon(Icons.call_outlined),
+              onPressed: ref.watch(callControllerProvider.select((s) => s.busy)) ? null : _startCall,
+            ),
+        ],
       ),
       body: Column(
         children: [
-          Expanded(child: _body()),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(child: _body()),
+                Positioned(
+                  right: Sp.md,
+                  bottom: Sp.md,
+                  child: AnimatedSwitcher(
+                    duration: Motion.of(context, Motion.fast),
+                    transitionBuilder: (child, a) => FadeTransition(
+                      opacity: a,
+                      child: ScaleTransition(scale: Tween(begin: 0.8, end: 1.0).animate(a), child: child),
+                    ),
+                    child: _atBottom || _messages.isEmpty
+                        ? const SizedBox.shrink()
+                        : _JumpToLatest(unseen: _unseen, onTap: _jumpToBottom),
+                  ),
+                ),
+              ],
+            ),
+          ),
           _composer(),
         ],
       ),
@@ -667,6 +738,27 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
       final key = _keys.putIfAbsent(m.id, GlobalKey.new);
       final grouped = older != null && older.senderId == m.senderId && _sameDay(older.createdAt, m.createdAt) &&
           m.createdAt.difference(older.createdAt).inMinutes < 5;
+      if (m.type == 'call') {
+        children.add(
+          KeyedSubtree(
+            key: key,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: _CallLog(
+                message: m,
+                missed: m.senderId != _me && (m.callStatus == 'missed' || m.callStatus == 'cancelled'),
+                incoming: m.senderId != _me,
+                onCallBack: _startCall,
+              ),
+            ),
+          ),
+        );
+        if (m.id == _newBefore) children.add(_NewDivider(key: _dividerKey));
+        if (older == null || !_sameDay(older.createdAt, m.createdAt)) {
+          children.add(_DayChip(dayLabel(m.createdAt)));
+        }
+        continue;
+      }
       children.add(
         KeyedSubtree(
           key: key,
@@ -690,6 +782,8 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
           ),
         ),
       );
+      // Daftar terbalik: elemen yang ditambahkan setelah pesan tampil di atasnya.
+      if (m.id == _newBefore) children.add(_NewDivider(key: _dividerKey));
       if (older == null || !_sameDay(older.createdAt, m.createdAt)) {
         children.add(_DayChip(dayLabel(m.createdAt)));
       }
@@ -703,6 +797,13 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
       padding: const EdgeInsets.fromLTRB(Sp.md, Sp.sm, Sp.md, Sp.md),
       children: children,
     );
+  }
+
+  Future<void> _startCall() async {
+    final error = await ref.read(callControllerProvider.notifier).place(widget.conversationId);
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    }
   }
 
   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
@@ -909,6 +1010,97 @@ class _RoundButton extends StatelessWidget {
   }
 }
 
+/// Batas "Pesan baru" di atas pesan pertama yang belum dibaca.
+class _NewDivider extends StatelessWidget {
+  const _NewDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    return Semantics(
+      label: 'Pesan baru di bawah ini',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Sp.md),
+        child: Row(
+          children: [
+            Expanded(child: Divider(color: c.primary.withValues(alpha: 0.35), thickness: 1)),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: Sp.sm),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(color: c.primaryContainer, borderRadius: BorderRadius.circular(12)),
+              child: Text(
+                'Pesan baru',
+                style: context.text.labelMedium?.copyWith(color: c.primary, fontWeight: FontWeight.w700),
+              ),
+            ),
+            Expanded(child: Divider(color: c.primary.withValues(alpha: 0.35), thickness: 1)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tombol ke pesan terbaru; lencana = pesan masuk selama menggulir ke atas.
+class _JumpToLatest extends StatelessWidget {
+  const _JumpToLatest({required this.unseen, required this.onTap});
+
+  final int unseen;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    return Semantics(
+      button: true,
+      label: unseen > 0 ? 'Ke pesan terbaru, $unseen pesan baru' : 'Ke pesan terbaru',
+      excludeSemantics: true,
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Center(
+              child: Material(
+                color: c.surface,
+                shape: CircleBorder(side: BorderSide(color: c.line)),
+                elevation: 3,
+                shadowColor: Colors.black.withValues(alpha: 0.3),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onTap,
+                  child: SizedBox(
+                    width: 46,
+                    height: 46,
+                    child: Icon(Icons.keyboard_arrow_down_rounded, color: c.ink, size: 28),
+                  ),
+                ),
+              ),
+            ),
+            if (unseen > 0)
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 22),
+                  height: 22,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: c.primary, borderRadius: BorderRadius.circular(11)),
+                  child: Text(
+                    unseen > 99 ? '99+' : '$unseen',
+                    style: context.text.labelSmall?.copyWith(color: c.onPrimary, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DayChip extends StatelessWidget {
   const _DayChip(this.label);
   final String label;
@@ -994,6 +1186,72 @@ class _SwipeToReplyState extends State<_SwipeToReply> {
             child: widget.child,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Riwayat panggilan di tengah percakapan; tak terjawab untuk saya ditandai
+/// sebagai masalah dan bisa ditelepon balik.
+class _CallLog extends StatelessWidget {
+  const _CallLog({
+    required this.message,
+    required this.missed,
+    required this.incoming,
+    required this.onCallBack,
+  });
+
+  final ChatMessage message;
+  final bool missed;
+  final bool incoming;
+  final VoidCallback onCallBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.mx;
+    final fg = missed ? c.alert : c.inkMuted;
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(Sp.md, 6, Sp.sm, 6),
+        decoration: BoxDecoration(
+          color: missed ? c.alertContainer : c.surface,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: missed ? Colors.transparent : c.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              missed
+                  ? Icons.phone_missed_rounded
+                  : incoming
+                  ? Icons.call_received_rounded
+                  : Icons.call_made_rounded,
+              size: 16,
+              color: fg,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                message.body ?? 'Panggilan suara',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.labelMedium?.copyWith(color: missed ? c.alert : c.ink),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              DateFormat('HH.mm').format(message.createdAt),
+              style: context.text.labelSmall?.copyWith(color: fg),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Telepon balik',
+              icon: Icon(Icons.call_rounded, size: 18, color: c.primary),
+              onPressed: onCallBack,
+            ),
+          ],
+        ),
       ),
     );
   }

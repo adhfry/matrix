@@ -5,6 +5,7 @@ import '../../../app/theme/tokens.dart';
 import '../../../core/format/fmt.dart';
 import '../../../core/widgets/finance.dart';
 import '../../../core/widgets/mx.dart';
+import '../../approvals/ui/decision_sheet.dart';
 import '../../schedule/ui/schedule_screen.dart';
 import '../../shell/home_shell.dart';
 import '../data/notification_repository.dart';
@@ -42,6 +43,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
 
   Future<void> _open(AppNotification n) async {
     await ref.read(inboxProvider.notifier).markRead(n);
+    final kind = n.data['decision_kind'];
+    final id = int.tryParse(n.data['decision_id'] ?? '');
+    if (kind != null && id != null) {
+      if (mounted) await showDecisionSheet(context, kind: kind, id: id);
+      return;
+    }
     await openNotificationRoute(
       goTab: (t) => ref.read(tabProvider.notifier).go(t),
       jumpMonth: (m) => ref.read(scheduleJumpProvider.notifier).go(m),

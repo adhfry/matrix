@@ -16,6 +16,7 @@ class AppNotification {
     this.route,
     this.readAt,
     this.createdAt,
+    this.data = const {},
   });
 
   final String id;
@@ -31,6 +32,9 @@ class AppNotification {
   final DateTime? readAt;
   final DateTime? createdAt;
 
+  /// Data tambahan server, mis. decision_kind/decision_id untuk persetujuan.
+  final Map<String, String> data;
+
   bool get unread => readAt == null;
 
   AppNotification read() => AppNotification(
@@ -44,6 +48,7 @@ class AppNotification {
     route: route,
     readAt: DateTime.now(),
     createdAt: createdAt,
+    data: data,
   );
 
   factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(
@@ -57,6 +62,10 @@ class AppNotification {
     route: J.s(j['route']),
     readAt: J.dt(j['read_at']),
     createdAt: J.dt(j['created_at']),
+    data: {
+      for (final e in J.m(j['data']).entries)
+        if (e.value != null) e.key: '${e.value}',
+    },
   );
 }
 
