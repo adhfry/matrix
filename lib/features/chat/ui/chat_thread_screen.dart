@@ -323,13 +323,18 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
     if (shown.isEmpty) return;
     var body = shown;
     _mentionTokens.forEach((display, token) => body = body.replaceFirst(display, token));
+    final tokens = Map.of(_mentionTokens);
     _input.clear();
     _mentionTokens.clear();
     _stopTyping();
     try {
       await _send((r) => _repo.sendText(widget.conversationId, body, replyTo: r), _optimistic('text', body: body));
     } catch (_) {
-      if (_input.text.isEmpty) _input.text = shown;
+      // Gagal kirim: teks & mention-nya dikembalikan agar bisa dikirim ulang utuh.
+      if (_input.text.isEmpty) {
+        _input.text = shown;
+        _mentionTokens.addAll(tokens);
+      }
     }
   }
 
