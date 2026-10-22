@@ -11,6 +11,7 @@ import '../core/widgets/matrix_mark.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/splash/matrix_splash.dart';
 import '../features/auth/ui/activation_screen.dart';
+import '../features/auth/ui/change_password_screen.dart';
 import '../features/auth/ui/login_screen.dart';
 import '../features/security/ui/pin_screen.dart';
 import '../features/shell/home_shell.dart';
@@ -113,6 +114,8 @@ class _SessionRoot extends ConsumerWidget {
       ),
       SessionLocked(:final user, :final biometric, :final hasPin) =>
         PinScreen.unlock(user: user, biometric: biometric, hasPin: hasPin),
+      SessionReady(:final user) when user.mustChangePassword =>
+        const ChangePasswordScreen(forced: true),
       SessionReady() => const HomeShell(),
     };
     return PageTransitionSwitcher(
@@ -131,6 +134,8 @@ class _SessionRoot extends ConsumerWidget {
               ? MatrixSplash
               : gate != null
               ? UpdateGateScreen
+              : s is SessionReady && s.user.mustChangePassword
+              ? ChangePasswordScreen
               : s.runtimeType,
         ),
         child: screen,

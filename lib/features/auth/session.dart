@@ -50,6 +50,7 @@ class SessionReady extends SessionState {
 class SessionController extends Notifier<SessionState>
     with WidgetsBindingObserver {
   StreamSubscription<void>? _unauthSub;
+  StreamSubscription<String>? _inactiveSub;
   DateTime? _pausedAt;
 
   /// Aplikasi di latar belakang lebih lama dari ini -> kunci PIN lagi.
@@ -65,9 +66,14 @@ class SessionController extends Notifier<SessionState>
         .read(apiClientProvider)
         .onUnauthorized
         .listen((_) => _expire());
+    _inactiveSub = ref
+        .read(apiClientProvider)
+        .onAccountInactive
+        .listen((message) => _expire(notice: message));
     ref.onDispose(() {
       WidgetsBinding.instance.removeObserver(this);
       _unauthSub?.cancel();
+      _inactiveSub?.cancel();
     });
     Future.microtask(_boot);
     return const SessionBooting();
@@ -118,9 +124,13 @@ class SessionController extends Notifier<SessionState>
       );
       if (state is SessionLocked) state = SessionReady(fresh);
     } on ApiException catch (e) {
-      if (e.isUnauthorized) {
+      if (e.isUnauthorized || e.isAccountInactive) {
         if (state is SessionLocked) {
-          await logout(notice: 'Sesi Anda berakhir. Silakan masuk lagi.');
+          await logout(
+            notice: e.isAccountInactive
+                ? e.message
+                : 'Sesi Anda berakhir. Silakan masuk lagi.',
+          );
         }
         return;
       }
@@ -136,7 +146,8 @@ class SessionController extends Notifier<SessionState>
   }
 
   void userUpdated(AppUser user) {
-    if (state is SessionReady) state = SessionReady(user);
+    final s = state;
+    if (s is SessionReady) state = SessionReady(user, offerPin: s.offerPin);
   }
 
   Future<void> logout({String? notice}) async {
@@ -149,9 +160,9 @@ class SessionController extends Notifier<SessionState>
     );
   }
 
-  Future<void> _expire() async {
+  Future<void> _expire({String? notice}) async {
     if (state is SessionNeedsLogin || state is SessionNeedsActivation) return;
-    await logout(notice: 'Sesi Anda berakhir. Silakan masuk lagi.');
+    await logout(notice: notice ?? 'Sesi Anda berakhir. Silakan masuk lagi.');
   }
 
   @override

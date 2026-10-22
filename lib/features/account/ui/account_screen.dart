@@ -11,6 +11,7 @@ import '../../../core/widgets/finance.dart';
 import '../../../core/widgets/mx.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/session.dart';
+import '../../auth/ui/change_password_screen.dart';
 import '../../scanner/ui/scan_history_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../nfc_tap/data/nfc_tap_repository.dart';
@@ -383,6 +384,24 @@ class AccountScreen extends ConsumerWidget {
                         const SectionTitle('Keamanan'),
                         _Group(
                           children: [
+                            ListTile(
+                              leading: const IconBadge(
+                                Icons.password_rounded,
+                                size: 36,
+                              ),
+                              title: const Text('Ganti password'),
+                              subtitle: const Text(
+                                'Berlaku untuk SiLAKES web dan MATRIX',
+                              ),
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                              ),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const ChangePasswordScreen(),
+                                ),
+                              ),
+                            ),
                             if (sec == null)
                               const ListTile(
                                 title: Text('Memuat pengaturan keamanan…'),

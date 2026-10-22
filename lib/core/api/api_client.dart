@@ -13,17 +13,31 @@ const apiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://api.silakes.labkesdasumenep.id',
 );
 
+/// Kode galat server untuk akun yang dinonaktifkan admin.
+const accountInactiveCode = 'account_inactive';
+
 /// Galat dari API yang sudah diterjemahkan ke kalimat untuk pegawai.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode, this.fieldErrors = const {}});
+  ApiException(
+    this.message, {
+    this.statusCode,
+    this.fieldErrors = const {},
+    this.code,
+  });
 
   final String message;
   final int? statusCode;
+
+  /// Kode galat dari server bila ada (mis. `account_inactive`).
+  final String? code;
 
   /// Galat per kolom dari validasi Laravel (`{field: [pesan]}`).
   final Map<String, String> fieldErrors;
 
   bool get isUnauthorized => statusCode == 401;
+
+  /// Akun dinonaktifkan admin: sesi harus diakhiri, bukan dicoba ulang.
+  bool get isAccountInactive => code == accountInactiveCode;
   bool get isOffline => statusCode == null;
 
   @override
@@ -57,6 +71,17 @@ class ApiClient {
               !e.requestOptions.path.endsWith('/mobile/logout')) {
             _unauthorized.add(null);
           }
+          // Akun dinonaktifkan admin saat sedang dipakai. Login & aktivasi
+          // menampilkan pesannya sendiri, jadi tidak ikut dipancarkan.
+          final body = e.response?.data;
+          if (e.response?.statusCode == 403 &&
+              body is Map &&
+              body['code'] == accountInactiveCode &&
+              !e.requestOptions.path.contains('/mobile/')) {
+            _accountInactive.add(
+              J.s(body['message']) ?? 'Akun Anda telah dinonaktifkan.',
+            );
+          }
           handler.next(e);
         },
       ),
@@ -75,12 +100,20 @@ class ApiClient {
   final SecureStore _store;
   late final Dio _dio;
   final _unauthorized = StreamController<void>.broadcast();
+  final _accountInactive = StreamController<String>.broadcast();
 
   /// Dipancarkan saat token ditolak server (sesi berakhir / login di HP lain).
   Stream<void> get onUnauthorized => _unauthorized.stream;
 
+  /// Dipancarkan saat admin menonaktifkan akun ini; isinya pesan server.
+  Stream<String> get onAccountInactive => _accountInactive.stream;
+
   @visibleForTesting
   void debugEmitUnauthorized() => _unauthorized.add(null);
+
+  @visibleForTesting
+  void debugEmitAccountInactive(String message) =>
+      _accountInactive.add(message);
 
   static const prefix = '/api/app/v1/matrix';
 
@@ -236,6 +269,7 @@ class ApiClient {
       }
     }
     final msg = body is Map ? _messageOf(body) : null;
+    final code = body is Map ? J.s(body['code']) : null;
     if (status != null && status >= 500) {
       return ApiException(
         'Server sedang bermasalah ($status). Coba beberapa saat lagi.',
@@ -249,6 +283,7 @@ class ApiClient {
               : 'Terjadi kesalahan ($status).'),
       statusCode: status,
       fieldErrors: fields,
+      code: code,
     );
   }
 

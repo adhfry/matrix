@@ -21,6 +21,7 @@ class AppUser {
     this.statusAtlm,
     this.attendanceMode = 'Fixed',
     this.isLocationFree = false,
+    this.mustChangePassword = false,
     this.raw = const {},
   });
 
@@ -36,6 +37,9 @@ class AppUser {
   final String? statusAtlm;
   final String attendanceMode;
   final bool isLocationFree;
+
+  /// Masih memakai password awal dari admin: wajib diganti sebelum masuk beranda.
+  final bool mustChangePassword;
   final Map<String, dynamic> raw;
 
   String get firstName => name.trim().split(RegExp(r'\s+')).first;
@@ -64,6 +68,7 @@ class AppUser {
     statusAtlm: J.s(j['status_atlm']),
     attendanceMode: J.s(j['attendance_mode']) ?? 'Fixed',
     isLocationFree: J.b(j['is_location_free']),
+    mustChangePassword: J.b(j['must_change_password']),
     raw: j,
   );
 
@@ -147,6 +152,23 @@ class AuthRepository {
   }
 
   Future<AppUser> refreshProfile() => _freshUser();
+
+  /// Ganti password sendiri. Sesi tetap berlaku; profil dimuat ulang supaya
+  /// tanda wajib ganti password ikut hilang.
+  Future<AppUser> changePassword({
+    required String current,
+    required String next,
+  }) async {
+    await _api.putWithMessage(
+      '$_p/password',
+      data: {
+        'current_password': current,
+        'new_password': next,
+        'new_password_confirmation': next,
+      },
+    );
+    return _freshUser();
+  }
 
   Future<AppUser?> cachedUser() async {
     final s = await _store.userJson();
