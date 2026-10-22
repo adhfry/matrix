@@ -360,20 +360,98 @@ class MentionCandidate {
   );
 }
 
-/// Potongan isi pesan: teks biasa atau mention pasien / hasil lab.
-/// Format token sama dengan web: "@[Nama](patient:12)" dan "#[Nama](lab:34)".
+/// Dokumen Mutu hasil pencarian "$" (SK, SOP, ...).
+class DocumentCandidate {
+  const DocumentCandidate({
+    required this.id,
+    required this.kindLabel,
+    required this.title,
+    required this.tag,
+    this.number,
+    this.revision,
+    this.status = 'berlaku',
+    this.adminOnly = false,
+  });
+
+  final int id;
+  final String kindLabel;
+  final String title;
+  final String tag;
+  final String? number;
+  final String? revision;
+  final String status;
+  final bool adminOnly;
+
+  /// Teks mention: jenis + judul, tanpa karakter yang merusak token.
+  String get label => '$kindLabel $title'.replaceAll(RegExp(r'[\[\]()]'), '');
+
+  factory DocumentCandidate.fromJson(Map<String, dynamic> j) => DocumentCandidate(
+    id: J.i(j['id']),
+    kindLabel: J.s(j['kind_label']) ?? 'Dokumen',
+    title: J.s(j['title']) ?? 'Dokumen',
+    tag: J.s(j['tag']) ?? '',
+    number: J.s(j['number']),
+    revision: J.s(j['revision']),
+    status: J.s(j['status']) ?? 'berlaku',
+    adminOnly: J.s(j['visibility']) == 'admin',
+  );
+}
+
+/// Detail Dokumen Mutu untuk lembar buka dokumen; [url] berlaku 30 menit.
+class QualityDocInfo {
+  const QualityDocInfo({
+    required this.id,
+    required this.kindLabel,
+    required this.title,
+    required this.tag,
+    required this.status,
+    this.number,
+    this.revision,
+    this.effectiveDate,
+    this.summary,
+    this.url,
+  });
+
+  final int id;
+  final String kindLabel;
+  final String title;
+  final String tag;
+  final String status;
+  final String? number;
+  final String? revision;
+  final DateTime? effectiveDate;
+  final String? summary;
+  final String? url;
+
+  factory QualityDocInfo.fromJson(Map<String, dynamic> j) => QualityDocInfo(
+    id: J.i(j['id']),
+    kindLabel: J.s(j['kind_label']) ?? 'Dokumen',
+    title: J.s(j['title']) ?? 'Dokumen',
+    tag: J.s(j['tag']) ?? '',
+    status: J.s(j['status']) ?? 'berlaku',
+    number: J.s(j['number']),
+    revision: J.s(j['revision']),
+    effectiveDate: J.date(j['effective_date']),
+    summary: J.s(j['summary']),
+    url: J.s(j['url']),
+  );
+}
+
+/// Potongan isi pesan: teks biasa atau mention pasien / hasil lab / dokumen.
+/// Format token sama dengan web: "@[Nama](patient:12)", "#[Nama](lab:34)",
+/// dan "$[Judul](doc:56)" untuk Dokumen Mutu.
 class MessagePart {
   const MessagePart.text(this.text) : mention = null, id = null;
   const MessagePart.mention(this.text, this.mention, this.id);
 
   final String text;
 
-  /// patient | lab, null untuk teks biasa.
+  /// patient | lab | doc, null untuk teks biasa.
   final String? mention;
   final int? id;
 }
 
-final mentionPattern = RegExp(r'([@#])\[([^\]]+)\]\((patient|lab):(\d+)\)');
+final mentionPattern = RegExp(r'([@#$])\[([^\]]+)\]\((patient|lab|doc):(\d+)\)');
 
 List<MessagePart> parseMentions(String? body) {
   if (body == null || body.isEmpty) return const [];

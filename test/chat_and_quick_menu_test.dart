@@ -1,8 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:matrix/app/theme/app_theme.dart';
 import 'package:matrix/features/chat/data/chat_models.dart';
+import 'package:matrix/features/chat/data/chat_repository.dart';
 import 'package:matrix/features/chat/ui/chat_widgets.dart';
 import 'package:matrix/features/shell/quick_camera_menu.dart';
 
@@ -17,6 +20,17 @@ void main() {
       expect(parts[1].id, 12);
       expect(parts[3].mention, 'lab');
       expect(parts[3].id, 34);
+    });
+
+    test(r'mention dokumen "$" jadi potongan doc; pratinjau tanpa sintaks token', () {
+      final parts = parseMentions(r'Baca $[SOP Cuci Tangan](doc:56) sebelum shift');
+      expect(parts.map((p) => p.text).toList(), ['Baca ', r'$SOP Cuci Tangan', ' sebelum shift']);
+      expect(parts[1].mention, 'doc');
+      expect(parts[1].id, 56);
+      expect(snippetOf(type: 'text', body: r'Cek $[SK SOTK](doc:3) & @[Budi](patient:1)'), r'Cek $SK SOTK & @Budi');
+      final d = DocumentCandidate.fromJson({'id': 3, 'kind_label': 'SOP', 'title': 'Cuci (Enam) Langkah [Revisi]', 'tag': 'sop-cuci', 'visibility': 'admin'});
+      expect(d.label, 'SOP Cuci Enam Langkah Revisi');
+      expect(d.adminOnly, isTrue);
     });
 
     test('ringkasan untuk kutipan & pratinjau', () {
@@ -61,6 +75,48 @@ void main() {
     );
     expect(find.text('Anda'), findsOneWidget);
     expect(find.text('Halo'), findsOneWidget);
+  });
+
+  group(r'chip dokumen "$" di pesan', () {
+    Future<void> pumpBody(WidgetTester tester, ChatRepository repo) => tester.pumpWidget(
+      ProviderScope(
+        overrides: [chatRepositoryProvider.overrideWithValue(repo)],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(body: MessageText(body: r'Baca $[SOP Cuci Tangan](doc:56) ya', onMine: false)),
+        ),
+      ),
+    );
+
+    // Mengetuk span dokumen (TapGestureRecognizer di dalam Text.rich).
+    void tapDoc(WidgetTester tester) {
+      final rich = tester.widget<RichText>(find.byType(RichText).first);
+      TapGestureRecognizer? tap;
+      rich.text.visitChildren((span) {
+        if (span is TextSpan && span.recognizer is TapGestureRecognizer) tap = span.recognizer! as TapGestureRecognizer;
+        return tap == null;
+      });
+      tap!.onTap!();
+    }
+
+    testWidgets(r'tampil tanpa tanda "$", diketuk membuka detail & tombol buka', (tester) async {
+      await pumpBody(tester, _FakeRepo(found: true));
+      expect(find.textContaining('SOP Cuci Tangan', findRichText: true), findsOneWidget);
+      expect(find.textContaining(r'$SOP', findRichText: true), findsNothing);
+      tapDoc(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Cuci Tangan Enam Langkah'), findsOneWidget);
+      expect(find.text('Berlaku'), findsOneWidget);
+      expect(find.text('Buka dokumen'), findsOneWidget);
+    });
+
+    testWidgets('dokumen yang tidak boleh dilihat: pesan jelas, tanpa tombol buka', (tester) async {
+      await pumpBody(tester, _FakeRepo(found: false));
+      tapDoc(tester);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('tidak dapat Anda akses'), findsOneWidget);
+      expect(find.text('Buka dokumen'), findsNothing);
+    });
   });
 
   group('pintasan kamera di tombol Absen', () {
@@ -229,4 +285,20 @@ void main() {
       expect(find.text('Scan KTP pasien'), findsNothing);
     });
   });
+}
+
+/// Repositori chat palsu: hanya detail Dokumen Mutu yang dipakai tes chip dokumen.
+class _FakeRepo implements ChatRepository {
+  _FakeRepo({required this.found});
+
+  final bool found;
+
+  @override
+  Future<QualityDocInfo> qualityDoc(int id) async {
+    if (!found) throw Exception('404');
+    return QualityDocInfo(id: id, kindLabel: 'SOP', title: 'Cuci Tangan Enam Langkah', tag: 'sop-cuci', status: 'berlaku', url: 'https://contoh.test/a.pdf');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -3,12 +3,16 @@ import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../app/theme/tokens.dart';
 import '../../../core/widgets/avatar.dart';
 import '../data/chat_models.dart';
+import '../data/chat_repository.dart';
+import 'quality_doc_sheet.dart';
 
 const _tabular = [FontFeature.tabularFigures()];
 
@@ -158,25 +162,68 @@ class ReplyQuote extends StatelessWidget {
   }
 }
 
-/// Isi teks dengan mention pasien (@) dan hasil lab (#) sebagai chip.
-class MessageText extends StatelessWidget {
+/// Isi teks dengan mention pasien (@), hasil lab (#), dan Dokumen Mutu ($)
+/// sebagai chip. Chip dokumen bisa diketuk untuk membuka dokumennya.
+class MessageText extends ConsumerStatefulWidget {
   const MessageText({super.key, required this.body, required this.onMine});
 
   final String body;
   final bool onMine;
 
   @override
+  ConsumerState<MessageText> createState() => _MessageTextState();
+}
+
+class _MessageTextState extends ConsumerState<MessageText> {
+  final _taps = <TapGestureRecognizer>[];
+
+  @override
+  void dispose() {
+    for (final t in _taps) {
+      t.dispose();
+    }
+    super.dispose();
+  }
+
+  TapGestureRecognizer _tap(VoidCallback onTap) {
+    final t = TapGestureRecognizer()..onTap = onTap;
+    _taps.add(t);
+    return t;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    for (final t in _taps) {
+      t.dispose();
+    }
+    _taps.clear();
     final c = context.mx;
+    final onMine = widget.onMine;
     final base = context.text.bodyLarge?.copyWith(color: onMine ? Colors.white : c.ink, height: 1.35);
     final patient = context.hues.sky;
+    final doc = context.hues.gold;
     return Text.rich(
       TextSpan(
         style: base,
         children: [
-          for (final p in parseMentions(body))
+          for (final p in parseMentions(widget.body))
             if (p.mention == null)
               TextSpan(text: p.text)
+            else if (p.mention == 'doc')
+              TextSpan(
+                text: p.text.substring(1),
+                semanticsLabel: 'Dokumen ${p.text.substring(1)}, ketuk untuk membuka',
+                recognizer: _tap(
+                  () => showQualityDocSheet(context, repo: ref.read(chatRepositoryProvider), id: p.id!, label: p.text.substring(1)),
+                ),
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  decoration: TextDecoration.underline,
+                  decorationColor: onMine ? Colors.white : doc.fg,
+                  color: onMine ? Colors.white : doc.fg,
+                  backgroundColor: onMine ? Colors.white.withValues(alpha: 0.18) : doc.bg,
+                ),
+              )
             else
               TextSpan(
                 text: p.text,

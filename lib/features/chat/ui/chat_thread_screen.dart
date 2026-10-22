@@ -75,6 +75,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
   final _mentionTokens = <String, String>{};
   String? _trigger;
   List<MentionCandidate> _candidates = const [];
+  List<DocumentCandidate> _docs = const [];
   bool _searching = false;
   Timer? _searchDebounce;
   List<AudioTemplate>? _templates;
@@ -456,7 +457,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
     }
   }
 
-  /// "@nama" / "#nama" sebelum kursor, atau "/audio" di awal pesan.
+  /// "@nama" / "#nama" / "$dokumen" sebelum kursor, atau "/audio" di awal pesan.
   void _detectTrigger() {
     final text = _input.text;
     final cursor = _input.selection.baseOffset < 0 ? text.length : _input.selection.baseOffset;
@@ -474,29 +475,63 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
       return;
     }
 
-    final m = RegExp(r'(^|\s)([@#])([^\s@#]*)$').firstMatch(before);
+    final m = RegExp(r'(^|\s)([@#$])([^\s@#$]*)$').firstMatch(before);
     if (m == null) {
       _trigger = null;
       _candidates = const [];
+      _docs = const [];
       return;
     }
     final query = m[3]!;
+    if (m[2] != _trigger) {
+      _candidates = const [];
+      _docs = const [];
+    }
     _trigger = m[2];
     _searchDebounce?.cancel();
-    if (query.isEmpty) {
+    final docs = _trigger == r'$';
+    // "$" tanpa kata kunci tetap menampilkan dokumen terbaru.
+    if (query.isEmpty && !docs) {
       _candidates = const [];
       return;
     }
     _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       setState(() => _searching = true);
       try {
-        final found = await _repo.searchPatients(query);
-        if (mounted && _trigger != null) setState(() => _candidates = found);
+        if (docs) {
+          final found = await _repo.searchDocuments(query, widget.conversationId);
+          if (mounted && _trigger == r'$') setState(() => _docs = found);
+        } else {
+          final found = await _repo.searchPatients(query);
+          if (mounted && _trigger != null) setState(() => _candidates = found);
+        }
       } catch (_) {
-        if (mounted) setState(() => _candidates = const []);
+        if (mounted) {
+          setState(() {
+            _candidates = const [];
+            _docs = const [];
+          });
+        }
       } finally {
         if (mounted) setState(() => _searching = false);
       }
+    });
+  }
+
+  void _pickDocument(DocumentCandidate d) {
+    final text = _input.text;
+    final cursor = _input.selection.baseOffset < 0 ? text.length : _input.selection.baseOffset;
+    final start = text.substring(0, cursor).lastIndexOf(r'$');
+    final display = '\$${d.label}';
+    _mentionTokens[display] = '\$[${d.label}](doc:${d.id})';
+    final next = '${text.substring(0, start)}$display ${text.substring(cursor)}';
+    _input.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: start + display.length + 1),
+    );
+    setState(() {
+      _trigger = null;
+      _docs = const [];
     });
   }
 
@@ -823,6 +858,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
           children: [
             if (_trigger == '/audio') _templatePanel(),
             if (_trigger == '@' || _trigger == '#') _mentionPanel(),
+            if (_trigger == r'$') _documentPanel(),
             if (_replyTo != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: Sp.sm),
@@ -876,7 +912,7 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
                       textCapitalization: TextCapitalization.sentences,
                       keyboardType: TextInputType.multiline,
                       decoration: InputDecoration(
-                        hintText: 'Tulis pesan. @ pasien, # hasil lab',
+                        hintText: r'Tulis pesan. @ pasien, # hasil lab, $ dokumen',
                         isDense: true,
                         filled: true,
                         fillColor: c.canvas,
@@ -946,6 +982,38 @@ class _ChatThreadScreenState extends ConsumerState<ChatThreadScreen> with Widget
             onTap: () => _pickMention(p),
           ),
       ],
+    );
+  }
+
+  Widget _documentPanel() {
+    final c = context.mx;
+    if (_searching && _docs.isEmpty) {
+      return _panel(children: [const ListTile(dense: true, title: Text('Mencari dokumen…'))]);
+    }
+    if (_docs.isEmpty) {
+      return _panel(
+        children: [
+          ListTile(dense: true, title: Text('Dokumen tidak ditemukan. Ketik judul, nomor, atau tag dokumen.', style: TextStyle(color: c.inkMuted))),
+        ],
+      );
+    }
+    return _panel(children: [for (final d in _docs) _documentTile(d)]);
+  }
+
+  Widget _documentTile(DocumentCandidate d) {
+    final meta = [
+      d.number,
+      if (d.revision != null) 'rev ${d.revision}',
+      if (d.status == 'draf') 'Draf',
+      if (d.status == 'diganti') 'Diganti revisi',
+      if (d.adminOnly) 'Admin saja',
+    ].whereType<String>().join(' · ');
+    return ListTile(
+      dense: true,
+      leading: Icon(Icons.description_outlined, color: context.hues.gold.fg),
+      title: Text(d.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(meta.isEmpty ? '#${d.tag}' : meta, maxLines: 1, overflow: TextOverflow.ellipsis),
+      onTap: () => _pickDocument(d),
     );
   }
 

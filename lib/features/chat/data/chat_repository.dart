@@ -102,6 +102,14 @@ class ChatRepository {
 
   Future<List<MentionCandidate>> searchPatients(String query) async =>
       J.l(await _api.get('$_base/mention-search', query: {'query': query})).map(MentionCandidate.fromJson).toList();
+
+  /// Mention "$": dokumen khusus admin hanya muncul bila semua peserta admin.
+  Future<List<DocumentCandidate>> searchDocuments(String query, int conversationId) async => J.l(
+    await _api.get('$_base/document-search', query: {'query': query, 'conversation_id': conversationId}),
+  ).map(DocumentCandidate.fromJson).toList();
+
+  /// Detail & tautan berkas Dokumen Mutu; hak lihat dicek server (404 bila tidak boleh).
+  Future<QualityDocInfo> qualityDoc(int id) async => QualityDocInfo.fromJson(J.m(await _api.get('/api/quality-docs/$id')));
 }
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) => ChatRepository(ref.watch(apiClientProvider)));
