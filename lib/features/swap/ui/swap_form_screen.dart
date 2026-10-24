@@ -14,8 +14,9 @@ import 'swap_screen.dart';
 /// Form tukar jadwal. Mengembalikan pesan server saat terkirim.
 ///
 /// Rekan kerja: tanggal sama = tukar shift; tanggal lain = tukar hari.
-/// Jadwal sendiri: tanggal sama = ganti shift; tanggal lain = tukar shift
-/// antar dua hari Anda (admin diberi tahu lewat WhatsApp).
+/// Jadwal sendiri: pilih hari lain milik sendiri (shift kedua hari
+/// dipertukarkan) atau ganti shift di hari yang sama. Admin diberi tahu
+/// lewat WhatsApp.
 class SwapFormScreen extends ConsumerStatefulWidget {
   const SwapFormScreen({super.key, this.from});
 
@@ -29,6 +30,9 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
   List<MyScheduleDay>? _mine;
   MyScheduleDay? _pick;
   String _type = 'peer';
+
+  /// Jadwal sendiri: 'days' = tukar dengan hari lain, 'change' = ganti shift.
+  String _selfMode = 'days';
   DateTime? _date;
   SwapOptions? _opts;
   bool _optsLoading = false;
@@ -50,8 +54,11 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
     super.dispose();
   }
 
-  bool get _sameDay =>
-      _pick != null && _date != null && DateUtils.isSameDay(_pick!.date, _date);
+  bool get _selfChange => _type == 'self' && _selfMode == 'change';
+
+  /// Hari lain milik saya yang bisa ditukar dengan hari terpilih.
+  List<MyScheduleDay> get _otherDays =>
+      (_mine ?? const []).where((d) => d.id != _pick?.id).toList();
 
   Future<void> _loadMine() async {
     final repo = ref.read(scheduleRepositoryProvider);
@@ -95,8 +102,27 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
   void _select(MyScheduleDay d) {
     _pick = d;
     _date = d.date;
+    _targetId = null;
+    _newShiftId = null;
     _loadOptions();
   }
+
+  void _setType(String type) {
+    setState(() {
+      _type = type;
+      _targetId = null;
+      _newShiftId = null;
+      // Jadwal sendiri tidak memakai tanggal tujuan; kembali ke hari terpilih.
+      if (type == 'self' && _pick != null) _date = _pick!.date;
+    });
+    _loadOptions();
+  }
+
+  void _setSelfMode(String mode) => setState(() {
+    _selfMode = mode;
+    _targetId = null;
+    _newShiftId = null;
+  });
 
   Future<void> _loadOptions() async {
     final date = _date;
@@ -109,10 +135,7 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
     try {
       final o = await ref.read(swapRepositoryProvider).options(date);
       if (!mounted || date != _date) return;
-      setState(() {
-        _opts = o;
-        if (_type == 'self' && !_sameDay) _targetId = o.mySchedule?.id;
-      });
+      setState(() => _opts = o);
     } on ApiException catch (e) {
       if (mounted) showMxSnack(context, e.message, tone: Tone.alert);
     } finally {
@@ -130,7 +153,10 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
       helpText: 'Tanggal tujuan',
     );
     if (d != null) {
-      setState(() => _date = d);
+      setState(() {
+        _date = d;
+        _targetId = null;
+      });
       _loadOptions();
     }
   }
@@ -138,7 +164,7 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
   SwapDraft? get _draft {
     final p = _pick;
     if (p?.id == null || _date == null) return null;
-    if (_type == 'self' && _sameDay) {
+    if (_selfChange) {
       if (_newShiftId == null) return null;
       return SwapDraft(
         type: 'self',
@@ -237,10 +263,7 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
                           title: 'Rekan kerja',
                           note: 'Rekan harus setuju dulu',
                           selected: _type == 'peer',
-                          onTap: () {
-                            setState(() => _type = 'peer');
-                            _loadOptions();
-                          },
+                          onTap: () => _setType('peer'),
                         ),
                       ),
                       const SizedBox(width: Sp.sm),
@@ -250,38 +273,36 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
                           title: 'Jadwal sendiri',
                           note: 'Pindah hari atau ganti shift',
                           selected: _type == 'self',
-                          onTap: () {
-                            setState(() => _type = 'self');
-                            _loadOptions();
-                          },
+                          onTap: () => _setType('self'),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: Sp.xl),
-                  const _Label('Tanggal tujuan'),
-                  OutlinedButton.icon(
-                    onPressed: _pickDate,
-                    icon: const Icon(Icons.calendar_today_outlined, size: 18),
-                    label: Text(
-                      _date == null ? 'Pilih tanggal' : Fmt.dayLong(_date!),
+                  if (_type == 'peer') ...[
+                    const _Label('Tanggal tujuan'),
+                    OutlinedButton.icon(
+                      onPressed: _pickDate,
+                      icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                      label: Text(
+                        _date == null ? 'Pilih tanggal' : Fmt.dayLong(_date!),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: Sp.xs),
-                  Text(
-                    _type == 'peer'
-                        ? 'Tanggal sama: tukar shift di hari itu. Tanggal lain: tukar hari dengan rekan.'
-                        : 'Tanggal sama: ganti shift hari itu. Tanggal lain: tukar shift Anda antar dua hari.',
-                    style: context.text.bodySmall,
-                  ),
-                  const SizedBox(height: Sp.xl),
-                  if (_optsLoading)
-                    const Padding(
-                      padding: EdgeInsets.all(Sp.lg),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (_opts != null)
-                    _type == 'peer' ? _colleagues(context) : _self(context),
+                    const SizedBox(height: Sp.xs),
+                    Text(
+                      'Tanggal sama: tukar shift di hari itu. Tanggal lain: tukar hari dengan rekan.',
+                      style: context.text.bodySmall,
+                    ),
+                    const SizedBox(height: Sp.xl),
+                    if (_optsLoading)
+                      const Padding(
+                        padding: EdgeInsets.all(Sp.lg),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_opts != null)
+                      _colleagues(context),
+                  ] else
+                    _self(context),
                   const SizedBox(height: Sp.xl),
                   const _Label('Alasan (opsional)'),
                   TextField(
@@ -348,38 +369,102 @@ class _SwapFormScreenState extends ConsumerState<SwapFormScreen> {
   }
 
   Widget _self(BuildContext context) {
-    final o = _opts!;
-    if (_sameDay) {
+    final pick = _pick!;
+    final modes = Row(
+      children: [
+        Expanded(
+          child: _TypeCard(
+            icon: Icons.swap_horiz_rounded,
+            title: 'Tukar hari lain',
+            note: 'Shift kedua hari dipertukarkan',
+            selected: _selfMode == 'days',
+            onTap: () => _setSelfMode('days'),
+          ),
+        ),
+        const SizedBox(width: Sp.sm),
+        Expanded(
+          child: _TypeCard(
+            icon: Icons.edit_calendar_rounded,
+            title: 'Ganti shift',
+            note: 'Hari yang sama, shift lain',
+            selected: _selfMode == 'change',
+            onTap: () => _setSelfMode('change'),
+          ),
+        ),
+      ],
+    );
+
+    if (_selfMode == 'change') {
+      final o = _opts;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _Label('Ganti menjadi shift'),
-          for (final s in o.workShifts.where(
-            (s) => s.code != _pick?.shift?.code,
-          ))
-            _PickRow(
-              title: s.name,
-              shift: s,
-              showShiftName: false,
-              selected: _newShiftId == s.id,
-              onTap: () => setState(() => _newShiftId = s.id),
-            ),
+          modes,
+          const SizedBox(height: Sp.xl),
+          _Label('Ganti ${Fmt.dayMedium(pick.date)} menjadi shift'),
+          if (_optsLoading || o == null)
+            const Padding(
+              padding: EdgeInsets.all(Sp.lg),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else
+            for (final s in o.workShifts.where(
+              (s) => s.code != pick.shift?.code,
+            ))
+              _PickRow(
+                title: s.name,
+                shift: s,
+                showShiftName: false,
+                selected: _newShiftId == s.id,
+                onTap: () => setState(() => _newShiftId = s.id),
+              ),
           const SizedBox(height: Sp.xs),
           Text(
-            'Untuk libur atau izin, gunakan menu Izin & cuti.',
+            'Untuk libur di hari itu, pilih "Tukar hari lain" lalu pilih hari libur Anda, atau ajukan lewat menu Izin & cuti.',
             style: context.text.bodySmall,
           ),
         ],
       );
     }
-    final my = o.mySchedule;
-    return MxCard(
-      child: Text(
-        my == null
-            ? 'Anda belum punya jadwal di tanggal ini.'
-            : 'Jadwal Anda ${my.label}: ${my.shift?.name ?? '-'}',
-        style: context.text.bodyMedium,
-      ),
+
+    final others = _otherDays;
+    MyScheduleDay? chosen;
+    for (final d in others) {
+      if (d.id == _targetId) chosen = d;
+    }
+    SwapShift? asSwap(MyScheduleDay d) => d.shift == null
+        ? null
+        : SwapShift(id: d.shift!.id, code: d.shift!.code, name: d.shift!.name);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        modes,
+        const SizedBox(height: Sp.xl),
+        const _Label('Pilih hari Anda yang lain'),
+        if (others.isEmpty)
+          Text(
+            'Tidak ada jadwal lain di bulan ini dan bulan depan.',
+            style: context.text.bodyMedium,
+          ),
+        for (final d in others)
+          _PickRow(
+            title: Fmt.dayMedium(d.date),
+            shift: asSwap(d),
+            selected: _targetId == d.id,
+            enabled: d.shift?.code != pick.shift?.code,
+            onTap: () => setState(() => _targetId = d.id),
+          ),
+        if (chosen != null) ...[
+          const SizedBox(height: Sp.sm),
+          MxCard(
+            child: Text(
+              '${Fmt.dayMedium(pick.date)}: ${pick.shift?.name ?? '-'} jadi ${chosen.shift?.name ?? '-'}, '
+              'dan ${Fmt.dayMedium(chosen.date)}: ${chosen.shift?.name ?? '-'} jadi ${pick.shift?.name ?? '-'}.',
+              style: context.text.bodyMedium,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -509,9 +594,13 @@ class _PickRow extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.showShiftName = true,
+    this.enabled = true,
   });
   final String title;
   final SwapShift? shift;
+
+  /// False = shiftnya sama dengan hari terpilih, tidak bisa ditukar.
+  final bool enabled;
 
   /// False bila [title] sudah nama shift (cukup ikon di kanan).
   final bool showShiftName;
@@ -526,40 +615,46 @@ class _PickRow extends StatelessWidget {
     return Semantics(
       selected: selected,
       button: true,
+      enabled: enabled,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(Radii.control),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: Sp.xs),
-          padding: const EdgeInsets.symmetric(
-            horizontal: Sp.md,
-            vertical: Sp.md,
-          ),
-          decoration: BoxDecoration(
-            color: selected ? c.primaryContainer : c.surface,
-            borderRadius: BorderRadius.circular(Radii.control),
-            border: Border.all(color: selected ? c.primary : c.line),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                selected
-                    ? Icons.radio_button_checked_rounded
-                    : Icons.radio_button_off_rounded,
-                color: selected ? c.primary : c.inkMuted,
-                size: 20,
-              ),
-              const SizedBox(width: Sp.md),
-              Expanded(child: Text(title, style: context.text.bodyLarge)),
-              Icon(g.icon, size: 16, color: hue.fg),
-              if (showShiftName) ...[
-                const SizedBox(width: 4),
-                Text(
-                  shift?.name ?? '-',
-                  style: context.text.labelMedium?.copyWith(color: hue.fg),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.5,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: Sp.xs),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.md,
+              vertical: Sp.md,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? c.primaryContainer : c.surface,
+              borderRadius: BorderRadius.circular(Radii.control),
+              border: Border.all(color: selected ? c.primary : c.line),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: selected ? c.primary : c.inkMuted,
+                  size: 20,
                 ),
+                const SizedBox(width: Sp.md),
+                Expanded(child: Text(title, style: context.text.bodyLarge)),
+                Icon(g.icon, size: 16, color: hue.fg),
+                if (showShiftName) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    enabled
+                        ? (shift?.name ?? '-')
+                        : '${shift?.name ?? '-'} (sama)',
+                    style: context.text.labelMedium?.copyWith(color: hue.fg),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
