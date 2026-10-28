@@ -95,6 +95,10 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   // Gelembung
   bool _open = false;
   String _stage = 'idle'; // idle | thinking | speaking | done | error
+  // Bagian sapaan yang sedang diucapkan (bocoran = pose "ide") dan ekspresi
+  // obrolan terakhir: laporan, ide, siap, cemas.
+  bool _spoilerPart = false;
+  String _mood = '';
   String _line = '';
   Timer? _lineTimer;
   String _typed = '';
@@ -330,10 +334,15 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
 
   Future<void> _deliver(int token) async {
     final g = _greet!;
-    setState(() => _stage = 'speaking');
+    setState(() {
+      _stage = 'speaking';
+      _spoilerPart = false;
+      _mood = '';
+    });
     await _say((v) => _typed = v, g.greeting, _voiceGreeting, token);
     if (token != _token) return;
     await Future<void>.delayed(const Duration(milliseconds: 450));
+    if (mounted) setState(() => _spoilerPart = true);
     await _say((v) => _typedSpoiler = v, g.spoiler, _voiceSpoiler, token);
     if (token == _token && mounted) setState(() => _stage = 'done');
     _toBottom();
@@ -405,6 +414,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       _stopLines();
       setState(() {
         _pending = false;
+        _mood = r.proposal != null ? 'ide' : 'laporan';
         _msgs.add(reply);
       });
       await _typeInto((v) => reply.text = v, r.text, _token);
@@ -416,6 +426,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       _stopLines();
       setState(() {
         _pending = false;
+        _mood = 'cemas';
         _msgs.add(reply..text = e.message);
       });
     }
@@ -433,6 +444,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       final r = await _repo.confirm(p.id);
       setState(() {
         p.status = 'done';
+        _mood = r.results.any((x) => !x.ok) ? 'cemas' : 'siap';
         _msgs.add(m);
       });
       await _typeInto((v) => m.text = v, r.message, _token);
@@ -443,6 +455,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     } on ApiException catch (e) {
       setState(() {
         p.status = e.message.contains('kedaluwarsa') ? 'expired' : 'open';
+        _mood = 'cemas';
         _msgs.add(m..text = e.message);
       });
     }
@@ -636,7 +649,13 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   }
 
   Widget _buddy(double size) {
-    final thinking = _stage == 'thinking' || _pending;
+    final pose = switch (_stage) {
+      _ when _stage == 'thinking' || _pending => 'berfikir',
+      'error' => 'cemas',
+      'speaking' => _spoilerPart ? 'ide' : 'menyapa',
+      'done' when _open => _mood.isEmpty ? 'siap' : _mood,
+      _ => 'menyapa',
+    };
     return AnimatedScale(
       scale: _dragging ? 1.06 : 1,
       duration: const Duration(milliseconds: 160),
@@ -676,10 +695,8 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
               child: ClipPath(
                 clipper: _BuddyClip(size),
                 child: Image.asset(
-                  thinking
-                      ? 'assets/sinta/sinta-berfikir.webp'
-                      : 'assets/sinta/sinta-menyapa.webp',
-                  key: ValueKey(thinking),
+                  'assets/sinta/sinta-$pose.webp',
+                  key: ValueKey(pose),
                   width: size * 1.28,
                   height: size * 1.28,
                   gaplessPlayback: true,
