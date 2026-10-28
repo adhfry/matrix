@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/format/fmt.dart';
@@ -111,6 +113,30 @@ class SintaRepository {
   Future<Uint8List> voice(String part, String rev) => _api.bytes(
     '$_p/sinta/greeting/voice?part=$part&v=${Uri.encodeComponent(rev)}',
   );
+
+  /// Suara dari simpanan HP bila sudah pernah diunduh untuk isi yang sama
+  /// ([rev] = penanda teks sapaan hari ini); selain itu diunduh lalu disimpan.
+  /// Membuka SINTA berkali-kali tidak mengunduh atau membuat suara lagi.
+  Future<Uint8List> cachedVoice(String part, String rev) async {
+    final dir = Directory('${(await getApplicationSupportDirectory()).path}/sinta-voice');
+    final safe = rev.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final file = File('${dir.path}/$part-$safe.wav');
+    if (safe.isNotEmpty && await file.exists() && await file.length() > 44) {
+      return file.readAsBytes();
+    }
+    final bytes = await voice(part, rev);
+    try {
+      await dir.create(recursive: true);
+      // Simpanan lama (hari sebelumnya) dibuang, cukup isi terbaru.
+      await for (final f in dir.list()) {
+        if (f is File && f.path.contains('/$part-') && f.path != file.path) await f.delete();
+      }
+      await file.writeAsBytes(bytes, flush: true);
+    } catch (_) {
+      // Gagal menyimpan bukan masalah: suara tetap diputar.
+    }
+    return bytes;
+  }
 
   Future<SintaReply> chat(
     List<({String role, String text})> history,

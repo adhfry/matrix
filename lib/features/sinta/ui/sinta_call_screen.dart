@@ -170,7 +170,7 @@ class _SintaCallScreenState extends ConsumerState<SintaCallScreen> {
   @override
   Widget build(BuildContext context) {
     final status = switch (_phase) {
-      'ringing' => 'Menelepon untuk mengingatkan rapat',
+      'ringing' => 'Telepon masuk',
       'connecting' => 'Menyambungkan…',
       'active' => _sintaSpeaking ? 'SINTA sedang bicara · $_clockText' : 'Mendengarkan · $_clockText',
       _ => _ended,

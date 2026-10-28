@@ -33,25 +33,29 @@ const _cyan = Color(0xFF06B6D4);
 const _sky = Color(0xFFBAE6FD);
 
 const _thinkLines = [
-  'SINTA berpikir keras',
-  'Mengambil personalisasimu',
-  'Mendalami hari kerjamu',
-  'Mengingat-ingat jadwalmu',
-  'Menimbang kata yang pas',
-  'Merangkai sapaan untukmu',
-  'Membuka catatan kecilku',
+  'SINTA sedang berpikir',
+  'Membaca catatan harianmu',
+  'Meninjau jadwal kerjamu',
+  'Merangkum pekerjaanmu',
+  'Memilih kata yang tepat',
+  'Menyusun sapaan untukmu',
+  'Menyiapkan kabar terbaru',
   'Sebentar lagi siap',
 ];
 const _voiceLines = [
-  'Menyiapkan suaraku',
-  'Melemaskan pita suara',
-  'Sebentar lagi aku bicara',
+  'Menyiapkan suara',
+  'Menyiapkan intonasi',
+  'Mengatur tempo bicara',
+  'Menyelaraskan nada',
+  'Merapikan pelafalan',
+  'Menata jeda kalimat',
+  'Hampir siap berbicara',
 ];
 const _chatLines = [
-  'SINTA berpikir',
+  'SINTA sedang berpikir',
   'Membaca jadwal dan catatanmu',
-  'Mendalami permintaanmu',
-  'Menimbang jawaban yang pas',
+  'Memahami permintaanmu',
+  'Menyusun jawaban yang tepat',
 ];
 
 class _Msg {
@@ -241,6 +245,9 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     final sub = _voice.onPlayerComplete.listen((_) {
       if (!done.isCompleted) done.complete();
     });
+    // Durasi dari header WAV: BytesSource di Android sering tidak melaporkan
+    // durasi/posisi, yang dulu membuat gelembung kosong sampai suara selesai.
+    final wavMs = _wavMillis(wav);
     try {
       await _voice.stop();
       await _voice.play(BytesSource(wav, mimeType: 'audio/wav'));
@@ -248,6 +255,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       await sub.cancel();
       return _typeInto(set, text, token);
     }
+    final clock = Stopwatch()..start();
     var n = 0;
     final timer = Timer.periodic(const Duration(milliseconds: 50), (t) async {
       if (token != _token || !mounted) {
@@ -257,8 +265,16 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       }
       final pos = await _voice.getCurrentPosition();
       final dur = await _voice.getDuration();
-      if (pos == null || dur == null || dur.inMilliseconds == 0) return;
-      final goal = pos.inMilliseconds / dur.inMilliseconds * total;
+      final durMs = (dur != null && dur.inMilliseconds > 0) ? dur.inMilliseconds : wavMs;
+      // Posisi pemutar bila ada; selain itu jam dinding sejak suara mulai.
+      final posMs = (pos != null && pos.inMilliseconds > 0) ? pos.inMilliseconds : clock.elapsedMilliseconds;
+      if (durMs <= 0) return;
+      // Pengaman: sinyal selesai tidak datang, tutup setelah durasi + jeda.
+      if (clock.elapsedMilliseconds > durMs + 1500 && !done.isCompleted) {
+        done.complete();
+        return;
+      }
+      final goal = posMs / durMs * total;
       while (n < text.length && cum[n] <= goal) {
         n++;
       }
@@ -270,6 +286,21 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     await sub.cancel();
     if (token == _token && mounted) setState(() => set(text));
     _toBottom();
+  }
+
+  /// Lama suara (ms) dari header WAV PCM; 0 bila bukan WAV yang dikenal.
+  static int _wavMillis(Uint8List b) {
+    if (b.length < 44 || String.fromCharCodes(b.sublist(0, 4)) != 'RIFF') return 0;
+    final d = ByteData.sublistView(b);
+    final byteRate = d.getUint32(28, Endian.little);
+    var i = 12;
+    while (i + 8 <= b.length) {
+      final id = String.fromCharCodes(b.sublist(i, i + 4));
+      final size = d.getUint32(i + 4, Endian.little);
+      if (id == 'data') return byteRate == 0 ? 0 : (size * 1000 ~/ byteRate);
+      i += 8 + size;
+    }
+    return byteRate == 0 ? 0 : ((b.length - 44) * 1000 ~/ byteRate);
   }
 
   Future<void> _say(
@@ -305,12 +336,12 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
         _runLines(_voiceLines);
         final parts = await Future.wait([
           _repo
-              .voice('greeting', g.voiceRev)
-              .timeout(const Duration(seconds: 25))
+              .cachedVoice('greeting', g.voiceRev)
+              .timeout(const Duration(seconds: 60))
               .then<Uint8List?>((v) => v, onError: (_) => null),
           _repo
-              .voice('spoiler', g.voiceRev)
-              .timeout(const Duration(seconds: 25))
+              .cachedVoice('spoiler', g.voiceRev)
+              .timeout(const Duration(seconds: 60))
               .then<Uint8List?>((v) => v, onError: (_) => null),
         ]);
         _voiceGreeting = parts[0];
