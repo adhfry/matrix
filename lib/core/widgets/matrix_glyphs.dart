@@ -25,6 +25,15 @@ enum MxGlyph {
 
   /// Map berkas; pita aksen = label di depan map (berkas pribadi pegawai).
   berkas,
+
+  /// Dua orang di meja; pita aksen = goresan tanda tangan di meja (rapat).
+  rapat,
+
+  /// Dua lembar bertumpuk; pita aksen = baris judul (Dokumen Mutu / Drive).
+  dokumen,
+
+  /// Dua panah berlawanan; pita aksen = panah bawah (tukar jadwal).
+  tukar,
 }
 
 class MxGlyphIcon extends StatelessWidget {
@@ -243,6 +252,44 @@ class _GlyphPainter extends CustomPainter {
           main,
         );
         canvas.drawLine(o(7.4, 13.4), o(16.6, 13.4), rib);
+      case MxGlyph.rapat:
+        canvas.drawCircle(o(7.4, 6.4), 2.4 * k, main);
+        canvas.drawCircle(o(16.6, 6.4), 2.4 * k, main);
+        for (final x in [7.4, 16.6]) {
+          canvas.drawPath(
+            Path()
+              ..moveTo((x - 3.6) * k, 12.6 * k)
+              ..quadraticBezierTo(x * k, 9 * k, (x + 3.6) * k, 12.6 * k),
+            main,
+          );
+        }
+        canvas.drawLine(o(2.8, 14.6), o(21.2, 14.6), main);
+        canvas.drawLine(o(5.6, 14.6), o(5.6, 21), main);
+        canvas.drawLine(o(18.4, 14.6), o(18.4, 21), main);
+        canvas.drawPath(
+          Path()
+            ..moveTo(9 * k, 18.6 * k)
+            ..quadraticBezierTo(10.6 * k, 16.4 * k, 12 * k, 18.4 * k)
+            ..quadraticBezierTo(13.4 * k, 20.2 * k, 15 * k, 17.6 * k),
+          rib,
+        );
+      case MxGlyph.dokumen:
+        canvas.drawPath(poly([o(5, 17.6), o(5, 3.4), o(14.6, 3.4)]), main);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            r(8.4, 6.6, 19.6, 21),
+            Radius.circular(2 * k),
+          ),
+          main,
+        );
+        canvas.drawLine(o(11.4, 11), o(16.6, 11), rib);
+        canvas.drawLine(o(11.4, 15), o(16.6, 15), main);
+        canvas.drawLine(o(11.4, 18), o(14.2, 18), main);
+      case MxGlyph.tukar:
+        canvas.drawLine(o(4, 8), o(19.4, 8), main);
+        canvas.drawPath(poly([o(15.8, 4.4), o(19.4, 8), o(15.8, 11.6)]), main);
+        canvas.drawLine(o(20, 16), o(4.6, 16), rib);
+        canvas.drawPath(poly([o(8.2, 12.4), o(4.6, 16), o(8.2, 19.6)]), rib);
     }
   }
 

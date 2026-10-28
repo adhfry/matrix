@@ -42,13 +42,31 @@ class SintaLink {
       .toList();
 }
 
-/// Usulan tindakan yang menunggu konfirmasi pegawai (izin, tukar jadwal).
+/// Satu tugas dalam usulan SINTA.
+class SintaTask {
+  const SintaTask(this.title, this.lines, this.after);
+
+  factory SintaTask.fromJson(Map<String, dynamic> j) => SintaTask(
+    J.s(j['title']) ?? 'Tugas',
+    J
+        .l(j['lines'])
+        .map((l) => (J.s(l['label']) ?? '', J.s(l['value']) ?? ''))
+        .toList(),
+    J.s(j['after']) ?? '',
+  );
+
+  final String title;
+  final List<(String, String)> lines;
+  final String after;
+}
+
+/// Usulan yang menunggu konfirmasi pegawai: satu atau beberapa tugas
+/// (izin, tukar jadwal, preferensi libur) yang dijalankan sekaligus.
 class SintaProposal {
   SintaProposal({
     required this.id,
     required this.title,
-    required this.lines,
-    required this.after,
+    required this.items,
     required this.confirmLabel,
     required this.expiresIn,
   }) : at = DateTime.now();
@@ -56,19 +74,14 @@ class SintaProposal {
   factory SintaProposal.fromJson(Map<String, dynamic> j) => SintaProposal(
     id: J.s(j['id']) ?? '',
     title: J.s(j['title']) ?? 'Usulan',
-    lines: J
-        .l(j['lines'])
-        .map((l) => (J.s(l['label']) ?? '', J.s(l['value']) ?? ''))
-        .toList(),
-    after: J.s(j['after']) ?? '',
+    items: J.l(j['items']).map((t) => SintaTask.fromJson(J.m(t))).toList(),
     confirmLabel: J.s(j['confirm_label']) ?? 'Konfirmasi',
     expiresIn: J.i(j['expires_in'], 900),
   );
 
   final String id;
   final String title;
-  final List<(String, String)> lines;
-  final String after;
+  final List<SintaTask> items;
   final String confirmLabel;
   final int expiresIn;
   final DateTime at;
@@ -123,7 +136,14 @@ class SintaRepository {
     );
   }
 
-  Future<({String message, List<SintaLink> links})> confirm(String id) async {
+  Future<
+    ({
+      String message,
+      List<SintaLink> links,
+      List<({String title, bool ok, String message})> results,
+    })
+  >
+  confirm(String id) async {
     final r = await _api.postWithMessage(
       '$_p/sinta/chat/confirm',
       data: {'id': id, 'via': 'matrix'},
@@ -132,6 +152,14 @@ class SintaRepository {
     return (
       message: J.s(d['message']) ?? r.message ?? 'Selesai.',
       links: SintaLink.list(d['links']),
+      results: [
+        for (final r in J.l(d['results']))
+          (
+            title: J.s(r['title']) ?? '',
+            ok: r['ok'] == true,
+            message: J.s(r['message']) ?? '',
+          ),
+      ],
     );
   }
 }

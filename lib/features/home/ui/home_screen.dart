@@ -19,6 +19,11 @@ import '../../attendance/data/attendance_repository.dart';
 import '../../attendance/logic/attendance_gate.dart';
 import '../../attendance/ui/attendance_launcher.dart';
 import '../../documents/ui/documents_screen.dart';
+import '../../drive/ui/drive_screen.dart';
+import '../../rapat/data/rapat_repository.dart';
+import '../../rapat/ui/rapat_screen.dart';
+import '../../rapat/ui/rapat_sign_screen.dart';
+import '../../swap/ui/swap_screen.dart';
 import '../../auth/session.dart';
 import '../../kinerja/data/kinerja_repository.dart';
 import '../../kinerja/ui/kinerja_screen.dart';
@@ -71,6 +76,7 @@ class HomeScreen extends ConsumerWidget {
     ref.invalidate(todayActivityProvider);
     ref.invalidate(kinerjaMonthProvider(_thisMonth()));
     ref.invalidate(unclaimedJaspelProvider);
+    ref.invalidate(todayMeetingsProvider);
     try {
       await ref.read(attendanceConfigProvider.future);
     } catch (_) {
@@ -99,6 +105,7 @@ class HomeScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const StaggerIn(index: 0, child: _TodayCard()),
+                        const _MeetingToday(),
                         const SizedBox(height: Sp.lg + 4),
                         StaggerIn(index: 1, child: _Services()),
                         const SizedBox(height: Sp.lg + 4),
@@ -1133,6 +1140,29 @@ class _Services extends ConsumerWidget {
                 onTap: () => push(const DocumentsScreen()),
               ),
             ],
+            [
+              _ServiceTile(
+                glyph: MxGlyph.rapat,
+                title: 'Rapat',
+                subtitle: 'Tanda tangan & riwayat',
+                hue: h.pink,
+                onTap: () => push(const RapatScreen()),
+              ),
+              _ServiceTile(
+                glyph: MxGlyph.dokumen,
+                title: 'Dokumen Mutu',
+                subtitle: 'Kantor & milik saya',
+                hue: h.slate,
+                onTap: () => push(const DriveScreen()),
+              ),
+              _ServiceTile(
+                glyph: MxGlyph.tukar,
+                title: 'Tukar jadwal',
+                subtitle: 'Dengan rekan atau hari lain',
+                hue: h.purple,
+                onTap: () => push(const SwapScreen()),
+              ),
+            ],
           ])
             Padding(
               padding: const EdgeInsets.only(bottom: Sp.sm),
@@ -1144,6 +1174,92 @@ class _Services extends ConsumerWidget {
                     row[i],
                   ],
                 ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Rapat hari ini yang daftar hadirnya sudah dibuka dan belum Anda
+/// tandatangani: satu ketukan ke halaman tanda tangan. Kosong = tidak tampil.
+class _MeetingToday extends ConsumerWidget {
+  const _MeetingToday();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final list = ref.watch(todayMeetingsProvider).value ?? const <Meeting>[];
+    final due = list.where((m) => m.canSign).toList();
+    if (due.isEmpty) return const SizedBox.shrink();
+    final c = context.mx;
+    final h = context.hues;
+    return Padding(
+      padding: const EdgeInsets.only(top: Sp.lg),
+      child: Column(
+        children: [
+          for (final m in due)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Sp.sm),
+              child: MxCard(
+                semanticLabel:
+                    'Rapat ${m.title} ${m.ongoing ? 'sedang berlangsung' : 'hari ini'}, belum tanda tangan.',
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: h.pink.bg,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: MxGlyphIcon(MxGlyph.rapat, color: h.pink.fg),
+                    ),
+                    const SizedBox(width: Sp.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            m.ongoing ? 'Rapat sedang berlangsung' : 'Rapat hari ini',
+                            style: context.text.labelSmall?.copyWith(
+                              color: c.inkMuted,
+                            ),
+                          ),
+                          Text(
+                            m.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.text.titleSmall,
+                          ),
+                          if (m.timeRange.isNotEmpty)
+                            Text(
+                              '${m.timeRange} WIB',
+                              style: context.text.bodySmall?.copyWith(
+                                color: c.inkMuted,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: Sp.sm),
+                    FilledButton(
+                      onPressed: () async {
+                        final ok = await Navigator.of(context).push<bool>(
+                          MaterialPageRoute(
+                            builder: (_) => RapatSignScreen(meeting: m),
+                          ),
+                        );
+                        if (ok == true) ref.invalidate(todayMeetingsProvider);
+                      },
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 44),
+                      ),
+                      child: const Text('Tanda tangan'),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],

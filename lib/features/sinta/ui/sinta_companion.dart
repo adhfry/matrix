@@ -10,7 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/storage/secure_store.dart';
 import '../../leave/ui/leave_letter_screen.dart';
+import '../../drive/ui/drive_screen.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../notifications/notification_router.dart';
+import '../../rapat/ui/rapat_detail_screen.dart';
+import '../../rapat/ui/rapat_screen.dart';
 import '../../shell/home_shell.dart';
 import '../../sid/ui/sid_screen.dart';
 import '../../swap/ui/swap_screen.dart';
@@ -56,6 +60,7 @@ class _Msg {
   String text;
   List<SintaLink> links = const [];
   SintaProposal? proposal;
+  List<({String title, bool ok, String message})> results = const [];
 }
 
 /// SINTA pendamping di aplikasi MATRIX: selalu menempel di tepi kiri atau
@@ -431,7 +436,10 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
         _msgs.add(m);
       });
       await _typeInto((v) => m.text = v, r.message, _token);
-      setState(() => m.links = r.links);
+      setState(() {
+        m.results = r.results;
+        m.links = r.links;
+      });
     } on ApiException catch (e) {
       setState(() {
         p.status = e.message.contains('kedaluwarsa') ? 'expired' : 'open';
@@ -480,6 +488,18 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       );
     } else if (uri.path == '/matrix/my-schedule') {
       ref.read(tabProvider.notifier).go(Tabs.schedule);
+    } else if (uri.path.startsWith('/sirapat')) {
+      final id = meetingIdOf(l.path, null);
+      await nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              id == null ? const RapatScreen() : RapatDetailScreen(id: id),
+        ),
+      );
+    } else if (uri.path.startsWith('/dokumen-mutu')) {
+      await nav.push(
+        MaterialPageRoute<void>(builder: (_) => const DriveScreen()),
+      );
     } else {
       await launchUrl(
         Uri.parse('$_webBase${l.path}'),
@@ -976,12 +996,17 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       'Apa pekerjaanku hari ini?',
       'Jadwalku minggu ini',
       'Ajukan izin',
+      'Isi preferensi libur bulan depan',
       'Tukar jadwal dengan rekan',
     ];
     return [
       const SizedBox(height: 12),
       for (final m in _msgs) ...[
         _bubble(m.text, user: m.role == 'user'),
+        if (m.results.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _results(m.results),
+        ],
         if (m.links.isNotEmpty) ...[
           const SizedBox(height: 6),
           Wrap(
@@ -1022,6 +1047,121 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     ];
   }
 
+  /// Rincian satu tugas; [number] diisi bila usulan berisi beberapa tugas.
+  Widget _task(SintaTask t, {int? number}) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (number != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 10,
+                backgroundColor: _navy,
+                child: Text(
+                  '$number',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  t.title,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      for (final (label, value) in t.lines)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                  color: Color(0xFF475569),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      const Divider(height: 14),
+      Text(
+        t.after,
+        style: const TextStyle(color: Color(0xFF334155), fontSize: 12.5),
+      ),
+    ],
+  );
+
+  /// Hasil per tugas setelah beberapa tugas dijalankan sekaligus.
+  Widget _results(List<({String title, bool ok, String message})> list) =>
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          children: [
+            for (final r in list)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      r.ok ? Icons.check_circle_rounded : Icons.error_rounded,
+                      size: 18,
+                      color: r.ok
+                          ? const Color(0xFF047857)
+                          : const Color(0xFFB91C1C),
+                      semanticLabel: r.ok ? 'Berhasil' : 'Belum berhasil',
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '${r.title}. ',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            TextSpan(text: r.message),
+                          ],
+                        ),
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      );
+
   Widget _proposal(SintaProposal p) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
@@ -1048,35 +1188,18 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
           ],
         ),
         const SizedBox(height: 8),
-        for (final (label, value) in p.lines)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label.toUpperCase(),
-                  style: const TextStyle(
-                    color: Color(0xFF475569),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+        for (final (n, t) in p.items.indexed)
+          p.items.length == 1
+              ? _task(t)
+              : Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
                   ),
+                  child: _task(t, number: n + 1),
                 ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        const Divider(height: 14),
-        Text(
-          p.after,
-          style: const TextStyle(color: Color(0xFF334155), fontSize: 12.5),
-        ),
         const SizedBox(height: 8),
         if (p.status == 'open' || p.status == 'busy')
           Row(

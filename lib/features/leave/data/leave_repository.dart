@@ -191,8 +191,8 @@ class LeaveRepository {
     );
   }
 
-  /// Buat pengajuan. Dengan [signature] (PNG kanvas) atau [useSid] (SID
-  /// tersimpan) server menyimpannya sebagai draf surat; mengembalikan id pengajuan.
+  /// Buat pengajuan. Dengan [signature] (PNG kanvas) server menyimpannya sebagai
+  /// draf surat; mengembalikan id pengajuan.
   Future<int> submit({
     required String type,
     required String subtype,
@@ -201,7 +201,6 @@ class LeaveRepository {
     required String reason,
     File? attachment,
     Uint8List? signature,
-    bool useSid = false,
   }) async {
     final form = FormData.fromMap({
       'leave_type': type,
@@ -214,8 +213,7 @@ class LeaveRepository {
           attachment.path,
           filename: attachment.uri.pathSegments.last,
         ),
-      if (useSid) ...{'use_sid': '1', 'via': 'matrix'},
-      if (signature != null && !useSid)
+      if (signature != null)
         'signature': MultipartFile.fromBytes(
           signature,
           filename: 'tanda-tangan.png',

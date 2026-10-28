@@ -337,7 +337,7 @@ class AccountScreen extends ConsumerWidget {
                               ),
                               title: const Text('Tanda tangan SID'),
                               subtitle: const Text(
-                                'Untuk daftar hadir rapat dan surat izin',
+                                'Dipakai panitia rapat dan SINTA saat diperlukan',
                               ),
                               trailing: const Icon(Icons.chevron_right_rounded),
                               onTap: () => Navigator.of(context).push(

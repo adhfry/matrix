@@ -18,6 +18,7 @@ import '../../features/leave/data/leave_repository.dart';
 import '../../features/notifications/data/notification_repository.dart';
 import '../../features/chat/data/chat_repository.dart';
 import '../../features/notifications/notification_router.dart';
+import '../../features/rapat/data/rapat_repository.dart';
 import '../../features/schedule/data/schedule_repository.dart';
 import '../../features/schedule/ui/schedule_screen.dart';
 import '../../features/swap/data/swap_repository.dart';
@@ -305,6 +306,11 @@ class PushService {
         ..invalidate(attendanceConfigProvider);
     } else if (type.startsWith('leave')) {
       _ref.invalidate(leaveMonthProvider);
+    } else if (type.startsWith('meeting')) {
+      // Undangan, pengingat, rapat dimulai: kartu "Rapat hari ini" di beranda.
+      _ref.invalidate(todayMeetingsProvider);
+      final id = int.tryParse('${data['meeting_id'] ?? ''}');
+      if (id != null) _ref.invalidate(meetingDetailProvider(id));
     }
     if (type.startsWith('schedule_swap')) _ref.invalidate(swapInboxProvider);
   }

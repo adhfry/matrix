@@ -6,6 +6,8 @@ import '../chat/ui/chat_list_screen.dart';
 import '../chat/ui/chat_thread_screen.dart';
 import '../leave/ui/leave_detail_screen.dart';
 import '../leave/ui/leave_screen.dart';
+import '../rapat/ui/rapat_detail_screen.dart';
+import '../rapat/ui/rapat_screen.dart';
 import '../sid/ui/sid_screen.dart';
 import '../swap/ui/swap_screen.dart';
 import '../update/ui/update_views.dart';
@@ -14,7 +16,7 @@ import 'ui/notifications_screen.dart';
 
 /// Buka tujuan notifikasi. [route] dari server, mis. "jaspel?month=09-2026",
 /// "schedule?month=2026-11", "attendance", "leave", "chat?conversation=5",
-/// "sid", "web". "web" dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
+/// "sid", "rapat?id=5", "web". Rapat dibuka di aplikasi; "web" lainnya dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
 /// -> kotak masuk.
 /// [goTab] memindah tab beranda (dari layanan maupun widget).
 Future<void> openNotificationRoute({
@@ -80,7 +82,19 @@ Future<void> openNotificationRoute({
               : ChatThreadScreen(conversationId: id),
         ),
       );
-    // Halaman yang hanya ada di SiLAKES web (persetujuan admin, rapat).
+    // Rapat (undangan, pengingat, rapat dimulai) dibuka di aplikasi:
+    // server mengirim "web" + alamat /sirapat/meetings/{id} supaya versi lama tetap ke web.
+    case 'web' || 'rapat' when meetingIdOf(webUrl, uri) != null:
+      await nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => RapatDetailScreen(id: meetingIdOf(webUrl, uri)!),
+        ),
+      );
+    case 'rapat':
+      await nav.push(
+        MaterialPageRoute<void>(builder: (_) => const RapatScreen()),
+      );
+    // Halaman yang hanya ada di SiLAKES web (persetujuan admin).
     case 'web' when webUrl != null && webUrl.isNotEmpty:
       await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
     default:
@@ -90,4 +104,12 @@ Future<void> openNotificationRoute({
         );
       }
   }
+}
+
+/// Id rapat dari "rapat?id=5" atau alamat web ".../sirapat/meetings/5".
+int? meetingIdOf(String? webUrl, Uri? route) {
+  final q = int.tryParse(route?.queryParameters['id'] ?? '');
+  if (route?.path == 'rapat' && q != null) return q;
+  final m = RegExp(r'/sirapat/meetings/(\d+)').firstMatch(webUrl ?? '');
+  return m == null ? null : int.tryParse(m.group(1)!);
 }

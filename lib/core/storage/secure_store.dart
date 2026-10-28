@@ -91,6 +91,11 @@ class SecureStore {
   Future<void> setSintaMuted(bool v) =>
       _s.write(key: 'sinta_muted', value: v ? '1' : '0');
 
+  /// Dokumen Mutu: tampilan kisi (true) atau daftar.
+  Future<bool> driveGrid() async => await _read('drive_grid') == '1';
+  Future<void> setDriveGrid(bool v) =>
+      _s.write(key: 'drive_grid', value: v ? '1' : '0');
+
   /// Scan Cepat di layar scan barang: scan langsung mengurangi stok 1 unit.
   Future<bool> quickScan() async => await _read('quick_scan') == 'true';
   Future<void> setQuickScan(bool v) => _s.write(key: 'quick_scan', value: '$v');
