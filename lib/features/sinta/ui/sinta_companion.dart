@@ -12,7 +12,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/storage/secure_store.dart';
 import '../../leave/ui/leave_letter_screen.dart';
+import '../../attendance/ui/attendance_launcher.dart';
 import '../../drive/ui/drive_screen.dart';
+import '../../kinerja/ui/kinerja_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../notifications/notification_router.dart';
 import '../../rapat/ui/rapat_detail_screen.dart';
@@ -153,6 +155,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   @override
   void dispose() {
     _lineTimer?.cancel();
+    _pokeTimer?.cancel();
     _voice.dispose();
     _sfx.dispose();
     _scroll.dispose();
@@ -415,7 +418,24 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     _deliver(++_token);
   }
 
+  // Diketuk beruntun (5x dalam 3 detik): SINTA kesal sebentar.
+  final _taps = <DateTime>[];
+  bool _poke = false;
+  Timer? _pokeTimer;
+
   void _toggle() {
+    final now = DateTime.now();
+    _taps
+      ..removeWhere((t) => now.difference(t).inMilliseconds > 3000)
+      ..add(now);
+    if (_taps.length >= 5) {
+      _taps.clear();
+      _poke = true;
+      _pokeTimer?.cancel();
+      _pokeTimer = Timer(const Duration(milliseconds: 2600), () {
+        if (mounted) setState(() => _poke = false);
+      });
+    }
     setState(() => _open = !_open);
     if (_open && (_stage == 'idle' || _stage == 'error')) {
       _start();
@@ -469,7 +489,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       _stopLines();
       setState(() {
         _pending = false;
-        _mood = r.proposal != null ? 'ide' : 'laporan';
+        _mood = r.mood.isNotEmpty ? r.mood : (r.proposal != null ? 'ide' : 'laporan');
         _msgs.add(reply);
       });
       await _typeInto((v) => reply.text = v, r.text, _token);
@@ -481,7 +501,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       _stopLines();
       setState(() {
         _pending = false;
-        _mood = 'cemas';
+        _mood = e.statusCode == 429 ? 'marah' : 'cemas';
         _msgs.add(reply..text = e.message);
       });
     }
@@ -510,7 +530,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     } on ApiException catch (e) {
       setState(() {
         p.status = e.message.contains('kedaluwarsa') ? 'expired' : 'open';
-        _mood = 'cemas';
+        _mood = e.statusCode == 429 ? 'marah' : 'silang';
         _msgs.add(m..text = e.message);
       });
     }
@@ -568,6 +588,11 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       await nav.push(
         MaterialPageRoute<void>(builder: (_) => const DriveScreen()),
       );
+    } else if (uri.path == '/') {
+      // Absen: check-in, check-out, atau pulang lebih awal.
+      if (mounted) await launchAttendance(context, ref);
+    } else if (uri.path == '/matrix/my-jaspel') {
+      if (mounted) await openKinerja(context, ref);
     } else {
       await launchUrl(
         Uri.parse('$_webBase${l.path}'),
@@ -705,6 +730,8 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
 
   Widget _buddy(double size) {
     final pose = switch (_stage) {
+      _ when _poke => 'marah',
+      _ when !_open && _stage != 'speaking' => 'idle',
       _ when _stage == 'thinking' || _pending => 'berfikir',
       'error' => 'cemas',
       'speaking' => _spoilerPart ? 'ide' : 'menyapa',

@@ -95,10 +95,13 @@ class SintaProposal {
 }
 
 class SintaReply {
-  const SintaReply(this.text, this.links, this.proposal);
+  const SintaReply(this.text, this.links, this.proposal, {this.mood = ''});
   final String text;
   final List<SintaLink> links;
   final SintaProposal? proposal;
+
+  /// Pose SINTA dari server: ide, silang (menolak), laporan, cemas.
+  final String mood;
 }
 
 class SintaRepository {
@@ -159,6 +162,7 @@ class SintaRepository {
       J.s(d['reply']) ?? '',
       SintaLink.list(d['links']),
       p is Map ? SintaProposal.fromJson(J.m(p)) : null,
+      mood: J.s(d['mood']) ?? '',
     );
   }
 
