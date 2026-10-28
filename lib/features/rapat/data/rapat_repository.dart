@@ -25,6 +25,8 @@ class Meeting {
     this.checkedInAt,
     this.checkinMethod,
     required this.canSign,
+    this.callReminder = false,
+    this.canRemind = false,
   });
 
   factory Meeting.fromJson(Map<String, dynamic> j) {
@@ -46,6 +48,8 @@ class Meeting {
       checkedInAt: J.dt(j['checked_in_at'])?.toLocal(),
       checkinMethod: J.s(j['checkin_method']),
       canSign: J.b(j['can_sign']),
+      callReminder: J.b(j['call_reminder']),
+      canRemind: J.b(j['can_remind']),
     );
   }
 
@@ -65,6 +69,10 @@ class Meeting {
   final DateTime? checkedInAt;
   final String? checkinMethod;
   final bool canSign;
+
+  /// Pegawai menekan "Ingatkan Saya": SINTA menelepon sebelum rapat.
+  final bool callReminder;
+  final bool canRemind;
 
   bool get present => myAttendance == 'present' || myAttendance == 'late';
   bool get excused => myAttendance == 'excused';
@@ -111,6 +119,7 @@ class MeetingDetail {
     this.minutes,
     required this.actionItems,
     this.webUrl,
+    this.sintaCall,
   });
 
   factory MeetingDetail.fromJson(Map<String, dynamic> j) {
@@ -138,6 +147,13 @@ class MeetingDetail {
           ),
       ],
       webUrl: J.s(j['web_url']),
+      sintaCall: j['sinta_call'] is Map
+          ? (
+              status: J.s(j['sinta_call']['status']) ?? '',
+              outcome: J.s(j['sinta_call']['outcome']),
+              scheduledAt: J.dt(j['sinta_call']['scheduled_at'])?.toLocal(),
+            )
+          : null,
     );
   }
 
@@ -157,6 +173,9 @@ class MeetingDetail {
   final List<({String description, DateTime? due, String status})>
   actionItems;
   final String? webUrl;
+
+  /// Telepon SINTA terakhir untuk rapat ini.
+  final ({String status, String? outcome, DateTime? scheduledAt})? sintaCall;
 }
 
 class MeetingPage {
@@ -203,6 +222,10 @@ class RapatRepository {
         }),
     ];
   }
+
+  /// "Ingatkan Saya" nyala/mati; mengembalikan pesan server.
+  Future<String?> remindMe(int id, bool on) async =>
+      (await _api.postWithMessage('$_p/rapat/$id/remind-me', data: {'on': on ? 1 : 0})).message;
 
   /// Tanda tangan kehadiran dari PNG kanvas (aturan sama dengan web).
   Future<String?> sign(int id, Uint8List png) async {

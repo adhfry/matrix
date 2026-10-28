@@ -13,7 +13,10 @@ import 'new_chat_screen.dart';
 
 /// Daftar percakapan chat SiLAKES (sama dengan widget chat di web).
 class ChatListScreen extends ConsumerStatefulWidget {
-  const ChatListScreen({super.key});
+  const ChatListScreen({super.key, this.inTab = false});
+
+  /// Tampil sebagai tab navigasi bawah (beri ruang untuk navigasi & tombol Absen).
+  final bool inTab;
 
   @override
   ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
@@ -90,10 +93,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final c = context.mx;
     return Scaffold(
       appBar: AppBar(title: const Text('Chat')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _new,
-        icon: const Icon(Icons.edit_outlined),
-        label: const Text('Chat baru'),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: widget.inTab ? 96 : 0),
+        child: FloatingActionButton.extended(
+          onPressed: _new,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Chat baru'),
+        ),
       ),
       body: async.when(
         loading: () => StateView.loading('Memuat percakapan…'),
@@ -104,7 +110,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           return RefreshIndicator(
             onRefresh: () => ref.refresh(chatConversationsProvider.future),
             child: ListView(
-              padding: const EdgeInsets.only(bottom: 96),
+              padding: EdgeInsets.only(bottom: widget.inTab ? 200 : 96),
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Sp.gutter, Sp.sm, Sp.gutter, Sp.sm),

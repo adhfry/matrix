@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart' hide Priority;
 
 import '../../app/app.dart';
@@ -124,6 +125,10 @@ class CallController extends Notifier<CallUiState> {
   final _tone = _Tone();
 
   static const _serviceId = 7301;
+
+  /// Penguatan suara lawan bicara (WebRTC Android menerima 0-10; 1 = asli).
+  /// Uji pemilik 29 Okt 2026: suara panggilan terlalu kecil di earpiece.
+  static const remoteGain = 3.0;
 
   CallRepository get _repo => ref.read(callRepositoryProvider);
 
@@ -312,6 +317,7 @@ class CallController extends Notifier<CallUiState> {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          highPassFilter: true,
         ),
       ),
     );
@@ -319,6 +325,12 @@ class CallController extends Notifier<CallUiState> {
     final events = room.createListener();
     _events = events;
     events
+      ..on<TrackSubscribedEvent>((e) {
+        final t = e.track;
+        if (t is RemoteAudioTrack) {
+          unawaited(rtc.Helper.setVolume(remoteGain, t.mediaStreamTrack));
+        }
+      })
       ..on<ParticipantConnectedEvent>((e) {
         _markPeer(e.participant.identity, connected: true, name: e.participant.name);
         if (state.phase == CallPhase.outgoing ||

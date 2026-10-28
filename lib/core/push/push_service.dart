@@ -19,6 +19,7 @@ import '../../features/notifications/data/notification_repository.dart';
 import '../../features/chat/data/chat_repository.dart';
 import '../../features/notifications/notification_router.dart';
 import '../../features/rapat/data/rapat_repository.dart';
+import '../../features/sinta/ui/sinta_call_screen.dart';
 import '../../features/schedule/data/schedule_repository.dart';
 import '../../features/schedule/ui/schedule_screen.dart';
 import '../../features/swap/data/swap_repository.dart';
@@ -204,6 +205,13 @@ class PushService {
   /// dengan kanal & tag yang sama (pesan beruntun satu percakapan menyatu).
   Future<void> _onForeground(RemoteMessage m) async {
     if (isCallPush(m.data)) return _onCallPush(m.data);
+    // Telepon SINTA saat aplikasi terbuka: berdering + layar telepon langsung tampil.
+    if (isSintaCall(m.data)) {
+      await showInteractivePush(_local, m.data);
+      final id = int.tryParse('${m.data['sinta_call_id'] ?? ''}');
+      if (id != null) unawaited(SintaCallScreen.open(id, title: m.data['_body'] as String?));
+      return;
+    }
     _refreshFor(m.data);
     // Pesan untuk percakapan yang sedang terbuka sudah tampil di layar.
     final convId = int.tryParse('${m.data['conversation_id'] ?? ''}');
@@ -318,6 +326,15 @@ class PushService {
   /// Buka tujuan notifikasi; bila sesi belum siap (terkunci PIN), ditunda.
   Future<void> open(Map<String, dynamic> data) async {
     final session = _ref.read(sessionProvider);
+    final sintaCall = int.tryParse('${data['sinta_call_id'] ?? ''}');
+    if (isSintaCall(data) && sintaCall != null && (session is SessionReady || session is SessionLocked)) {
+      await SintaCallScreen.open(
+        sintaCall,
+        title: data['_body'] as String?,
+        accept: data[_tapAction] == PushAction.accept,
+      );
+      return;
+    }
     if (isCallPush(data) && (session is SessionReady || session is SessionLocked)) {
       await _openCall(data);
       return;

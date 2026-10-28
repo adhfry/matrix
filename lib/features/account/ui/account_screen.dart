@@ -13,6 +13,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../auth/session.dart';
 import '../../auth/ui/change_password_screen.dart';
 import '../../scanner/ui/scan_history_screen.dart';
+import '../../kinerja/ui/kinerja_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../sid/ui/sid_screen.dart';
 import '../../nfc_tap/data/nfc_tap_repository.dart';
@@ -213,6 +214,21 @@ class AccountScreen extends ConsumerWidget {
                         const SectionTitle('Aktivitas'),
                         _Group(
                           children: [
+                            // Kinerja tidak lagi di navigasi bawah (diganti Chat).
+                            ListTile(
+                              leading: IconBadge(
+                                Icons.bar_chart_rounded,
+                                size: 36,
+                                background: context.hues.gold.bg,
+                                color: context.hues.gold.fg,
+                              ),
+                              title: const Text('Kinerja & jaspel'),
+                              subtitle: const Text(
+                                'Jam kerja, kehadiran, dan klaim jaspel',
+                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
+                              onTap: () => openKinerja(context, ref),
+                            ),
                             Builder(
                               builder: (context) {
                                 final idt = ref.watch(identityProvider).value;

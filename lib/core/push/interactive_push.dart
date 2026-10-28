@@ -25,7 +25,15 @@ abstract final class PushAction {
   static const reject = 'reject';
   static const accept = 'accept';
   static const decline = 'decline';
+
+  /// Undangan/pengingat rapat: izinkan SINTA menelepon sebelum rapat.
+  static const remindMe = 'remind_me';
 }
+
+/// SINTA menelepon untuk mengingatkan rapat (sinta-voice di server).
+bool isSintaCall(Map<String, dynamic> data) => data['type'] == 'sinta_call';
+
+String sintaCallTag(Object? id) => 'sinta-call-$id';
 
 const pushInitSettings = InitializationSettings(
   android: AndroidInitializationSettings(pushIcon),
@@ -60,6 +68,7 @@ Future<void> showInteractivePush(
   Map<String, dynamic> data,
 ) async {
   if (data['type'] == 'call_invite') return showIncomingCall(local, data);
+  if (isSintaCall(data)) return showSintaCall(local, data);
   if (data['type'] == 'call_signal') {
     final tag = callTag(data['call_id']);
     return local.cancel(id: tag.hashCode, tag: tag);
@@ -94,6 +103,7 @@ Future<void> showInteractivePush(
   final decidable =
       actions.contains(PushAction.approve) &&
       actions.contains(PushAction.reject);
+  final remind = actions.contains(PushAction.remindMe);
   await local.show(
     id: id,
     title: title,
@@ -119,10 +129,55 @@ Future<void> showInteractivePush(
                   showsUserInterface: true,
                 ),
               ]
+            : remind
+            ? const [AndroidNotificationAction(PushAction.remindMe, 'Ingatkan Saya')]
             : null,
       ),
     ),
     payload: payload,
+  );
+}
+
+/// Telepon SINTA: berdering seperti panggilan suara; Angkat membuka layar
+/// telepon SINTA, Nanti saja = SINTA menjadwal ulang.
+Future<void> showSintaCall(
+  FlutterLocalNotificationsPlugin local,
+  Map<String, dynamic> data,
+) async {
+  final until = DateTime.tryParse('${data['ring_until'] ?? ''}');
+  final left = until?.difference(DateTime.now());
+  if (left == null || left.inSeconds <= 1) return;
+  final tag = sintaCallTag(data['sinta_call_id']);
+  await local.show(
+    id: tag.hashCode,
+    title: 'SINTA menelepon',
+    body: '${data['_body'] ?? 'Mengingatkan rapat'}',
+    notificationDetails: NotificationDetails(
+      android: AndroidNotificationDetails(
+        callRingChannelId,
+        'Panggilan masuk',
+        channelDescription: 'Nada dering panggilan suara dari chat SiLAKES',
+        importance: Importance.max,
+        priority: Priority.max,
+        sound: callRingSound,
+        audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+        category: AndroidNotificationCategory.call,
+        fullScreenIntent: true,
+        ongoing: true,
+        autoCancel: false,
+        timeoutAfter: left.inMilliseconds,
+        additionalFlags: Int32List.fromList([4]),
+        tag: tag,
+        icon: pushIcon,
+        color: pushColor,
+        visibility: NotificationVisibility.public,
+        actions: const [
+          AndroidNotificationAction(PushAction.decline, 'Nanti saja'),
+          AndroidNotificationAction(PushAction.accept, 'Angkat', showsUserInterface: true),
+        ],
+      ),
+    ),
+    payload: jsonEncode(data),
   );
 }
 
@@ -250,6 +305,14 @@ Future<void> onBackgroundPushAction(NotificationResponse response) async {
     await _declineCall(data);
     return;
   }
+  if (data != null && isSintaCall(data) && response.actionId == PushAction.decline) {
+    await _declineSintaCall(data);
+    return;
+  }
+  if (data != null && response.actionId == PushAction.remindMe) {
+    await _remindMe(response, data);
+    return;
+  }
   final conversationId = int.tryParse('${data?['conversation_id'] ?? ''}');
   if (data == null || conversationId == null) return;
 
@@ -313,6 +376,47 @@ Future<void> ackRinging(Object? path) async {
   } catch (_) {
     // Tanpa tanda terima penelepon tetap melihat "Memanggil"; dering tetap jalan.
   }
+}
+
+/// "Nanti saja" pada telepon SINTA: SINTA menjadwal ulang.
+Future<void> _declineSintaCall(Map<String, dynamic> data) async {
+  final local = FlutterLocalNotificationsPlugin();
+  final tag = sintaCallTag(data['sinta_call_id']);
+  try {
+    await local.cancel(id: tag.hashCode, tag: tag);
+    await ApiClient(SecureStore()).post('${ApiClient.prefix}/sinta/calls/${data['sinta_call_id']}/decline');
+  } catch (e) {
+    debugPrint('[push] tolak telepon SINTA gagal: $e');
+  }
+}
+
+/// "Ingatkan Saya" tanpa membuka aplikasi: notifikasi diganti konfirmasinya.
+Future<void> _remindMe(NotificationResponse response, Map<String, dynamic> data) async {
+  final local = FlutterLocalNotificationsPlugin();
+  await local.initialize(settings: pushInitSettings);
+  final tag = J.s(data['_tag']);
+  final id = response.id ?? pushNotificationId(tag, data);
+  String text;
+  try {
+    final r = await ApiClient(SecureStore()).postWithMessage(
+      '${ApiClient.prefix}/rapat/${data['meeting_id']}/remind-me',
+      data: {'on': 1},
+    );
+    text = r.message ?? 'SINTA akan menelepon Anda sebelum rapat.';
+  } catch (e) {
+    text = e is ApiException && e.isUnauthorized
+        ? 'Masuk ke MATRIX dulu, lalu buka rapatnya untuk menyalakan pengingat.'
+        : 'Pengingat belum tersimpan. Buka rapatnya di MATRIX untuk mencoba lagi.';
+  }
+  await local.show(
+    id: id,
+    title: '${data['_title'] ?? 'Rapat'}',
+    body: text,
+    notificationDetails: NotificationDetails(
+      android: pushDetails('${data['category'] ?? 'rapat'}', tag: tag, style: BigTextStyleInformation(text)),
+    ),
+    payload: jsonEncode(data),
+  );
 }
 
 /// Tolak dari notifikasi tanpa membuka aplikasi.

@@ -29,7 +29,6 @@ import '../../kinerja/data/kinerja_repository.dart';
 import '../../kinerja/ui/kinerja_screen.dart';
 import '../../leave/ui/leave_screen.dart';
 import '../../chat/data/chat_repository.dart';
-import '../../chat/ui/chat_list_screen.dart';
 import '../../notifications/data/notification_repository.dart';
 import '../../notifications/ui/notification_peek.dart';
 import '../../scanner/ui/scan_home_screen.dart';
@@ -274,12 +273,8 @@ class _ChatButton extends ConsumerWidget {
       label: unread > 0 ? 'Chat, $unread pesan belum dibaca' : 'Chat',
       child: PressScale(
         haptic: true,
-        onTap: () async {
-          await Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const ChatListScreen()),
-          );
-          if (context.mounted) ref.invalidate(chatConversationsProvider);
-        },
+        // Chat kini tab di navigasi bawah.
+        onTap: () => ref.read(tabProvider.notifier).go(Tabs.chat),
         child: SizedBox(
           width: 48,
           height: 48,
@@ -490,7 +485,7 @@ class _Hero extends ConsumerWidget {
             button: true,
             label: 'Jam kerja ${Fmt.monthYear(now)}, buka kinerja',
             child: GestureDetector(
-              onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
+              onTap: () => openKinerja(context, ref),
               behavior: HitTestBehavior.opaque,
               child: Row(
                 children: [
@@ -1111,10 +1106,10 @@ class _Services extends ConsumerWidget {
               ),
               _ServiceTile(
                 glyph: MxGlyph.jaspel,
-                title: 'Jaspel',
-                subtitle: 'Rincian & klaim',
+                title: 'Kinerja',
+                subtitle: 'Jam kerja & jaspel',
                 hue: h.gold,
-                onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
+                onTap: () => openKinerja(context, ref),
               ),
             ],
             [
@@ -1358,10 +1353,7 @@ class _JaspelReward extends ConsumerWidget {
     final period = list.length == 1
         ? 'Periode ${Fmt.monthYear(list.first.month)}'
         : '${list.length} periode: ${list.map((p) => Fmt.monthYear(p.month)).join(', ')}';
-    void open() {
-      ref.read(kinerjaJumpProvider.notifier).go(first);
-      ref.read(tabProvider.notifier).go(Tabs.kinerja);
-    }
+    void open() => openKinerja(context, ref, month: first);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: Sp.lg + 4),
@@ -1497,7 +1489,7 @@ class _MonthNotes extends ConsumerWidget {
         );
 
     return MxCard(
-      onTap: () => ref.read(tabProvider.notifier).go(Tabs.kinerja),
+      onTap: () => openKinerja(context, ref),
       padding: const EdgeInsets.fromLTRB(Sp.lg, Sp.lg, Sp.lg, Sp.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

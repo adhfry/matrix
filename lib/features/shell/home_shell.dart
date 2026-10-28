@@ -27,7 +27,8 @@ import 'quick_camera_menu.dart';
 import '../auth/session.dart';
 import '../calls/call_controller.dart';
 import '../home/ui/home_screen.dart';
-import '../kinerja/ui/kinerja_screen.dart';
+import '../chat/data/chat_repository.dart';
+import '../chat/ui/chat_list_screen.dart';
 import '../schedule/ui/schedule_screen.dart';
 import '../security/pin_service.dart';
 import '../security/ui/pin_screen.dart';
@@ -46,7 +47,7 @@ final tabProvider = NotifierProvider<ShellTab, int>(ShellTab.new);
 abstract final class Tabs {
   static const home = 0;
   static const schedule = 1;
-  static const kinerja = 2;
+  static const chat = 2;
   static const account = 3;
 }
 
@@ -539,7 +540,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     const pages = [
       HomeScreen(),
       ScheduleScreen(),
-      KinerjaScreen(),
+      ChatListScreen(inTab: true),
       AccountScreen(),
     ];
 
@@ -595,7 +596,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
 /// Navigasi bawah dengan tombol Absen bundar di tengah (DESIGN.md §11):
 /// aksi paling sering selalu satu ketukan dari layar mana pun.
-class _NavBar extends StatelessWidget {
+class _NavBar extends ConsumerWidget {
   const _NavBar({
     required this.index,
     required this.onSelect,
@@ -607,17 +608,19 @@ class _NavBar extends StatelessWidget {
   final VoidCallback onAttend;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unread = ref.watch(chatUnreadProvider);
     final c = context.mx;
     final bottom = MediaQuery.paddingOf(context).bottom;
     final dark = Theme.of(context).brightness == Brightness.dark;
-    Widget item(int i, IconData icon, IconData active, String label) =>
+    Widget item(int i, IconData icon, IconData active, String label, {int badge = 0}) =>
         Expanded(
           child: _NavItem(
             selected: index == i,
             icon: icon,
             activeIcon: active,
             label: label,
+            badge: badge,
             onTap: () => onSelect(i),
           ),
         );
@@ -663,10 +666,11 @@ class _NavBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 84),
                 item(
-                  Tabs.kinerja,
-                  Icons.bar_chart_rounded,
-                  Icons.bar_chart_rounded,
-                  'Kinerja',
+                  Tabs.chat,
+                  Icons.chat_bubble_outline_rounded,
+                  Icons.chat_bubble_rounded,
+                  'Chat',
+                  badge: unread,
                 ),
                 item(
                   Tabs.account,
@@ -801,6 +805,7 @@ class _NavItem extends StatelessWidget {
     required this.activeIcon,
     required this.label,
     required this.onTap,
+    this.badge = 0,
   });
 
   final bool selected;
@@ -809,13 +814,16 @@ class _NavItem extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
+  /// Jumlah belum dibaca (tab Chat); 0 = tanpa lencana.
+  final int badge;
+
   @override
   Widget build(BuildContext context) {
     final c = context.mx;
     return Semantics(
       button: true,
       selected: selected,
-      label: label,
+      label: badge > 0 ? '$label, $badge pesan belum dibaca' : label,
       excludeSemantics: true,
       child: InkResponse(
         onTap: onTap,
@@ -834,9 +842,14 @@ class _NavItem extends StatelessWidget {
                 color: selected ? c.primaryContainer : Colors.transparent,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Icon(
-                selected ? activeIcon : icon,
-                color: selected ? c.primary : c.inkMuted,
+              child: Badge(
+                isLabelVisible: badge > 0,
+                label: Text(badge > 99 ? '99+' : '$badge'),
+                backgroundColor: c.alert,
+                child: Icon(
+                  selected ? activeIcon : icon,
+                  color: selected ? c.primary : c.inkMuted,
+                ),
               ),
             ),
             const SizedBox(height: 4),

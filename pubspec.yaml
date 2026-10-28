@@ -57,6 +57,8 @@ dependencies:
   record: ^7.1.2
   web_socket_channel: ^3.0.3
   livekit_client: 2.13.0
+  # Penguatan suara panggilan (Helper.setVolume); versi mengikuti livekit_client.
+  flutter_webrtc: ^1.6.2
 
 dev_dependencies:
   integration_test:

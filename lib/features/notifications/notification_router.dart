@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/app.dart';
 import '../chat/ui/chat_list_screen.dart';
 import '../chat/ui/chat_thread_screen.dart';
+import '../kinerja/ui/kinerja_screen.dart';
 import '../leave/ui/leave_detail_screen.dart';
 import '../leave/ui/leave_screen.dart';
 import '../rapat/ui/rapat_detail_screen.dart';
@@ -38,7 +39,10 @@ Future<void> openNotificationRoute({
 
   switch (path) {
     case 'jaspel':
-      toTab(Tabs.kinerja);
+      nav.popUntil((r) => r.isFirst);
+      await nav.push(
+        MaterialPageRoute<void>(builder: (_) => const KinerjaScreen()),
+      );
     case 'schedule':
       // "schedule?month=2026-11" -> buka bulan itu.
       final m = DateTime.tryParse('${uri?.queryParameters['month'] ?? ''}-01');

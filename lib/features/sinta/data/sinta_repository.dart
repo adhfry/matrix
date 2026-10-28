@@ -162,6 +162,15 @@ class SintaRepository {
       ],
     );
   }
+
+  /// Angkat telepon SINTA: alamat & token ruang LiveKit.
+  Future<({String url, String token})> acceptCall(int id) async {
+    final d = J.m(await _api.post('$_p/sinta/calls/$id/accept'));
+    return (url: J.s(d['url']) ?? '', token: J.s(d['token']) ?? '');
+  }
+
+  /// Tolak: SINTA menjadwal ulang telepon.
+  Future<void> declineCall(int id) => _api.post('$_p/sinta/calls/$id/decline');
 }
 
 final sintaRepositoryProvider = Provider<SintaRepository>(

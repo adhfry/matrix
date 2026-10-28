@@ -15,6 +15,15 @@ import 'day_row_tile.dart';
 import 'jaspel_detail_screen.dart';
 
 /// Buka tab Kinerja di bulan tertentu (dari voucher jaspel di Beranda).
+/// Kinerja kini layar tersendiri (tab bawah = Chat): dibuka dari Beranda,
+/// Akun, dan notifikasi jaspel. [month] = langsung ke bulan itu.
+Future<void> openKinerja(BuildContext context, WidgetRef ref, {DateTime? month}) {
+  if (month != null) ref.read(kinerjaJumpProvider.notifier).go(month);
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => const KinerjaScreen()),
+  );
+}
+
 class KinerjaJump extends Notifier<DateTime?> {
   @override
   DateTime? build() => null;
@@ -141,11 +150,17 @@ class _KinerjaScreenState extends ConsumerState<KinerjaScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 120 - 48),
+                const SizedBox(height: Sp.xxl),
               ],
             ),
           ),
           const StatusScrim(),
+          if (Navigator.of(context).canPop())
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 4,
+              left: 4,
+              child: BackButton(color: context.mx.onHero),
+            ),
         ],
       ),
     );
