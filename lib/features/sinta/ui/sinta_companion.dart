@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/api/api_client.dart';
@@ -128,6 +130,23 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   @override
   void initState() {
     super.initState();
+    // Efek bunyi tidak meminta fokus audio: dulu bunyi "selesai berpikir"
+    // merebut fokus dari suara SINTA sehingga sapaan pribadi terhenti.
+    unawaited(_sfx.setAudioContext(AudioContext(
+      android: const AudioContextAndroid(
+        usageType: AndroidUsageType.assistanceSonification,
+        contentType: AndroidContentType.sonification,
+        audioFocus: AndroidAudioFocus.none,
+      ),
+    )).catchError((_) {}));
+    unawaited(_voice.setAudioContext(AudioContext(
+      android: const AudioContextAndroid(
+        // Media: mengikuti tombol volume media HP.
+        usageType: AndroidUsageType.media,
+        contentType: AndroidContentType.speech,
+        audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+      ),
+    )).catchError((_) {}));
     _restore();
   }
 
@@ -249,9 +268,14 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
     // durasi/posisi, yang dulu membuat gelembung kosong sampai suara selesai.
     final wavMs = _wavMillis(wav);
     try {
-      await _voice.stop();
-      await _voice.play(BytesSource(wav, mimeType: 'audio/wav'));
-    } catch (_) {
+      await _voice.stop().catchError((_) {});
+      // Diputar dari berkas: MediaPlayer Android kurang andal membaca WAV
+      // dari memori (BytesSource), sapaan pribadi sempat tidak bersuara.
+      final f = File('${(await getTemporaryDirectory()).path}/sinta-${wav.length}-$wavMs.wav');
+      if (!await f.exists() || await f.length() != wav.length) await f.writeAsBytes(wav, flush: true);
+      await _voice.play(DeviceFileSource(f.path, mimeType: 'audio/wav'));
+    } catch (e) {
+      debugPrint('[sinta] suara gagal diputar: $e');
       await sub.cancel();
       return _typeInto(set, text, token);
     }
