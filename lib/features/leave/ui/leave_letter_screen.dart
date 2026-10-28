@@ -11,6 +11,8 @@ import '../../../core/api/api_client.dart';
 import '../../../core/widgets/mx.dart';
 import '../../../core/widgets/signature_pad.dart';
 import '../../auth/ui/auth_scaffold.dart';
+import '../../sid/data/sid_repository.dart';
+import '../../sid/ui/sid_screen.dart';
 import '../data/leave_repository.dart';
 
 /// Isian pengajuan yang diteruskan ke langkah tanda tangan.
@@ -32,7 +34,8 @@ class LeaveDraftInput {
   final File? attachment;
 }
 
-/// Langkah 2: tanda tangan di kanvas, lalu draf surat dibuat server.
+/// Langkah 2: SID dibubuhkan (atau tanda tangan digambar di kanvas), lalu
+/// draf surat dibuat server.
 class LeaveSignScreen extends ConsumerStatefulWidget {
   const LeaveSignScreen({super.key, required this.input});
   final LeaveDraftInput input;
@@ -45,6 +48,8 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
   final _pad = SignatureController();
   bool _busy = false;
   String? _error;
+  bool _manual = false;
+  Future<Uint8List>? _sidImage;
 
   @override
   void initState() {
@@ -58,7 +63,7 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
     super.dispose();
   }
 
-  Future<void> _create() async {
+  Future<void> _create({bool useSid = false}) async {
     setState(() {
       _busy = true;
       _error = null;
@@ -74,7 +79,8 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
             end: i.end,
             reason: i.reason,
             attachment: i.attachment,
-            signature: await _pad.toPng(),
+            signature: useSid ? null : await _pad.toPng(),
+            useSid: useSid,
           );
       ref.invalidate(leaveMonthProvider);
       if (!mounted) return;
@@ -92,6 +98,15 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sid = ref.watch(sidOverviewProvider);
+    final sidActive = sid.value?.status.active ?? false;
+    if (sid.isLoading && !sid.hasValue) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Tanda tangan')),
+        body: StateView.loading('Memeriksa SID…'),
+      );
+    }
+    if (sidActive && !_manual) return _withSid(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Tanda tangan')),
       // Tidak bergulir: menggeser di kanvas tidak boleh menggulir halaman.
@@ -110,13 +125,32 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
             ),
             const SizedBox(height: Sp.lg),
             SignaturePad(controller: _pad),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _pad.isEmpty ? null : _pad.clear,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Ulangi'),
-              ),
+            Row(
+              children: [
+                if (sidActive)
+                  TextButton(
+                    onPressed: () => setState(() => _manual = false),
+                    child: const Text('Pakai SID'),
+                  )
+                else
+                  TextButton(
+                    onPressed: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SidScreen(),
+                        ),
+                      );
+                      ref.invalidate(sidOverviewProvider);
+                    },
+                    child: const Text('Buat SID'),
+                  ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _pad.isEmpty ? null : _pad.clear,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Ulangi'),
+                ),
+              ],
             ),
             if (_error != null) ...[
               const SizedBox(height: Sp.sm),
@@ -128,6 +162,68 @@ class _LeaveSignScreenState extends ConsumerState<LeaveSignScreen> {
               busyLabel: 'Membuat surat…',
               busy: _busy,
               onPressed: _pad.isEmpty ? null : _create,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// SID aktif: surat memakai SID tanpa menggambar lagi.
+  Widget _withSid(BuildContext context) {
+    final repo = ref.read(sidRepositoryProvider);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Tanda tangan')),
+      body: Padding(
+        padding: const EdgeInsets.fromLTRB(Sp.gutter, 0, Sp.gutter, Sp.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _Steps(current: 1),
+            const SizedBox(height: Sp.lg),
+            Text(
+              'SID Anda akan dibubuhkan pada surat izin yang dibuat otomatis.',
+              style: context.text.bodyMedium?.copyWith(
+                color: context.mx.inkMuted,
+              ),
+            ),
+            const SizedBox(height: Sp.lg),
+            Container(
+              height: 160,
+              padding: const EdgeInsets.all(Sp.md),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(Radii.control),
+                border: Border.all(color: context.mx.line, width: 1.5),
+              ),
+              child: FutureBuilder<Uint8List>(
+                future: _sidImage ??= repo.image(),
+                builder: (context, snap) => snap.hasData
+                    ? Image.memory(
+                        snap.data!,
+                        fit: BoxFit.contain,
+                        semanticLabel: 'SID Anda',
+                      )
+                    : const Center(child: Text('SID Anda')),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _busy ? null : () => setState(() => _manual = true),
+                child: const Text('Gambar manual'),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: Sp.sm),
+              InlineError(_error!),
+            ],
+            const SizedBox(height: Sp.lg),
+            BusyButton(
+              label: 'Buat draf dengan SID',
+              busyLabel: 'Membuat surat…',
+              busy: _busy,
+              onPressed: () => _create(useSid: true),
             ),
           ],
         ),

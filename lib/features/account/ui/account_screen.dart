@@ -14,6 +14,7 @@ import '../../auth/session.dart';
 import '../../auth/ui/change_password_screen.dart';
 import '../../scanner/ui/scan_history_screen.dart';
 import '../../leave/ui/leave_screen.dart';
+import '../../sid/ui/sid_screen.dart';
 import '../../nfc_tap/data/nfc_tap_repository.dart';
 import '../../update/data/update_repository.dart';
 import '../../update/ui/update_views.dart';
@@ -329,6 +330,24 @@ class AccountScreen extends ConsumerWidget {
                             ),
                             ListTile(
                               leading: IconBadge(
+                                Icons.draw_outlined,
+                                size: 36,
+                                background: context.hues.indigo.bg,
+                                color: context.hues.indigo.fg,
+                              ),
+                              title: const Text('Tanda tangan SID'),
+                              subtitle: const Text(
+                                'Untuk daftar hadir rapat dan surat izin',
+                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const SidScreen(),
+                                ),
+                              ),
+                            ),
+                            ListTile(
+                              leading: IconBadge(
                                 Icons.badge_outlined,
                                 size: 36,
                                 background: context.hues.sky.bg,
@@ -393,9 +412,7 @@ class AccountScreen extends ConsumerWidget {
                               subtitle: const Text(
                                 'Berlaku untuk SiLAKES web dan MATRIX',
                               ),
-                              trailing: const Icon(
-                                Icons.chevron_right_rounded,
-                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => const ChangePasswordScreen(),

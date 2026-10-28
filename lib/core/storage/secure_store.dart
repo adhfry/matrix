@@ -80,6 +80,17 @@ class SecureStore {
   Future<bool> ttsEnabled() async => await _read(_ttsEnabled) != 'false';
   Future<void> setTtsEnabled(bool v) => _s.write(key: _ttsEnabled, value: '$v');
 
+  /// SINTA pendamping: posisi ("left:0.55" / "right:0.4"), disembunyikan
+  /// sampai tanggal (yyyy-mm-dd), dan suara dibisukan.
+  Future<String?> sintaPos() => _read('sinta_pos');
+  Future<void> setSintaPos(String v) => _s.write(key: 'sinta_pos', value: v);
+  Future<String?> sintaHiddenOn() => _read('sinta_hidden_on');
+  Future<void> setSintaHiddenOn(String v) =>
+      _s.write(key: 'sinta_hidden_on', value: v);
+  Future<bool> sintaMuted() async => await _read('sinta_muted') == '1';
+  Future<void> setSintaMuted(bool v) =>
+      _s.write(key: 'sinta_muted', value: v ? '1' : '0');
+
   /// Scan Cepat di layar scan barang: scan langsung mengurangi stok 1 unit.
   Future<bool> quickScan() async => await _read('quick_scan') == 'true';
   Future<void> setQuickScan(bool v) => _s.write(key: 'quick_scan', value: '$v');

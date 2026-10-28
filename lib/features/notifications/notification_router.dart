@@ -6,6 +6,7 @@ import '../chat/ui/chat_list_screen.dart';
 import '../chat/ui/chat_thread_screen.dart';
 import '../leave/ui/leave_detail_screen.dart';
 import '../leave/ui/leave_screen.dart';
+import '../sid/ui/sid_screen.dart';
 import '../swap/ui/swap_screen.dart';
 import '../update/ui/update_views.dart';
 import '../shell/home_shell.dart';
@@ -13,7 +14,7 @@ import 'ui/notifications_screen.dart';
 
 /// Buka tujuan notifikasi. [route] dari server, mis. "jaspel?month=09-2026",
 /// "schedule?month=2026-11", "attendance", "leave", "chat?conversation=5",
-/// "web". "web" dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
+/// "sid", "web". "web" dibuka di SiLAKES web ([webUrl]); tujuan tak dikenal
 /// -> kotak masuk.
 /// [goTab] memindah tab beranda (dari layanan maupun widget).
 Future<void> openNotificationRoute({
@@ -51,6 +52,11 @@ Future<void> openNotificationRoute({
           builder: (_) =>
               id == null ? const LeaveScreen() : LeaveDetailScreen(id: id),
         ),
+      );
+    // SID diperlukan (mis. SINTA menyiapkan surat izin) -> halaman tanda tangan SID.
+    case 'sid':
+      await nav.push(
+        MaterialPageRoute<void>(builder: (_) => const SidScreen()),
       );
     case 'update':
       await nav.push(

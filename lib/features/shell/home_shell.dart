@@ -1,3 +1,4 @@
+import '../sinta/ui/sinta_companion.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -578,6 +579,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                         : pages[i],
                   ),
                 ),
+            // SINTA menempel di tepi kiri/kanan, di atas semua tab.
+            const Positioned.fill(child: SintaCompanion()),
           ],
         ),
         bottomNavigationBar: _NavBar(
