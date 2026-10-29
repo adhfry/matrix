@@ -748,7 +748,8 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
           clipBehavior: Clip.none,
           alignment: Alignment.topCenter,
           children: [
-            // Lingkaran 88% kotak; tubuh diturunkan 7% agar mengisi tanpa celah.
+            // Lingkaran 88% kotak; tubuh tetap ukuran penuh dan diturunkan 4%
+            // agar menutup dasar lingkaran tanpa celah.
             Container(
               width: size * 0.88,
               height: size * 0.88,
@@ -775,7 +776,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
             ),
             // Kepala boleh keluar dari lingkaran; bawahnya terpotong mengikuti lingkaran.
             Positioned(
-              bottom: 10 - size * 0.07,
+              bottom: 10 - size * 0.04,
               child: ClipPath(
                 clipper: _BuddyClip(size),
                 child: Image.asset(
@@ -1399,9 +1400,8 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   );
 }
 
-/// Potong bagian bawah gambar mengikuti lingkaran; atas dibiarkan keluar.
-/// [circle] = sisi kotak SINTA: lingkaran berjari-jari 44% dengan pusat 57%
-/// di atas dasar gambar (gambar diturunkan 7% dari dasar kotak).
+/// Potong bagian bawah gambar melengkung selebar gambar (sama dengan web);
+/// atas dibiarkan keluar.
 class _BuddyClip extends CustomClipper<Path> {
   _BuddyClip(this.circle);
   final double circle;
@@ -1409,8 +1409,8 @@ class _BuddyClip extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
     final cx = size.width / 2;
-    final r = circle * 0.44;
-    final cy = size.height - circle * 0.57;
+    final r = size.width / 2;
+    final cy = size.height - r;
     return Path()
       ..addRect(Rect.fromLTRB(0, 0, size.width, cy))
       ..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
