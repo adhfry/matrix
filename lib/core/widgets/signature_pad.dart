@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/theme/tokens.dart';
@@ -102,17 +103,28 @@ class SignaturePad extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, box) {
               controller._size = box.biggest;
-              // Listener (bukan GestureDetector): sentuhan mentah tidak ikut
-              // "arena" gestur, jadi goresan tidak direbut pengguliran halaman.
-              return Listener(
+              // Kotak langsung memenangkan "arena" gestur saat jari menyentuh
+              // (EagerGestureRecognizer), sehingga halaman yang bisa digulir
+              // tidak ikut bergeser selama tanda tangan digambar. Goresan
+              // dibaca dari Listener.
+              return RawGestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPointerDown: (e) => controller._start(e.localPosition),
-                onPointerMove: (e) => controller._add(e.localPosition),
-                child: ListenableBuilder(
-                  listenable: controller,
-                  builder: (context, _) => CustomPaint(
-                    size: box.biggest,
-                    painter: _PadPainter(controller._strokes, c.inkMuted),
+                gestures: {
+                  EagerGestureRecognizer: GestureRecognizerFactoryWithHandlers<EagerGestureRecognizer>(
+                    EagerGestureRecognizer.new,
+                    (_) {},
+                  ),
+                },
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (e) => controller._start(e.localPosition),
+                  onPointerMove: (e) => controller._add(e.localPosition),
+                  child: ListenableBuilder(
+                    listenable: controller,
+                    builder: (context, _) => CustomPaint(
+                      size: box.biggest,
+                      painter: _PadPainter(controller._strokes, c.inkMuted),
+                    ),
                   ),
                 ),
               );

@@ -41,4 +41,40 @@ void main() {
       expect(pad.isEmpty, isTrue);
     },
   );
+
+  testWidgets('menggambar di kotak tanda tangan tidak menggulir halaman', (tester) async {
+    final pad = SignatureController();
+    final scroll = ScrollController();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: ListView(
+            controller: scroll,
+            children: [
+              const SizedBox(height: 300),
+              SignaturePad(controller: pad),
+              const SizedBox(height: 1200),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // Goresan naik-turun di dalam kotak, seperti tanda tangan sungguhan.
+    final g = await tester.startGesture(tester.getCenter(find.byType(SignaturePad)));
+    for (final dy in [-40.0, 60.0, -50.0, 40.0]) {
+      await g.moveBy(Offset(12, dy));
+      await tester.pump();
+    }
+    await g.up();
+    await tester.pumpAndSettle();
+    expect(scroll.offset, 0);
+    expect(pad.isEmpty, isFalse);
+
+    // Di luar kotak, halaman tetap bisa digulir.
+    await tester.dragFrom(const Offset(200, 100), const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, greaterThan(0));
+  });
 }
