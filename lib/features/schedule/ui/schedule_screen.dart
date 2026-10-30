@@ -11,6 +11,7 @@ import '../../auth/session.dart';
 import '../data/schedule_repository.dart';
 import '../../swap/data/swap_repository.dart';
 import '../../swap/ui/swap_screen.dart';
+import 'preference_screen.dart';
 import 'shift_style.dart';
 import 'team_full_screen.dart';
 import 'team_grid.dart';
@@ -162,7 +163,9 @@ class _MyMonth extends ConsumerWidget {
             icon: Icons.event_busy_outlined,
             title: 'Belum ada jadwal di ${Fmt.monthYear(month)}',
             message:
-                'Jadwal disusun admin setiap bulan. Geser ke bulan lain atau tanyakan ke admin.',
+                'Jadwal disusun admin setiap bulan. Sebelum disusun, Anda bisa memilih tanggal ingin libur atau masuk pagi/siang.',
+            actionLabel: 'Isi preferensi jadwal',
+            onAction: () => openPreferences(context),
           );
         }
         final counts = <ShiftGroup, int>{};
@@ -224,6 +227,8 @@ class _MyMonth extends ConsumerWidget {
               ),
               const SizedBox(height: Sp.md),
               const StaggerIn(index: 1, child: _SwapEntry()),
+              const SizedBox(height: Sp.md),
+              const StaggerIn(index: 2, child: PreferenceEntry()),
               const SizedBox(height: Sp.lg),
               StaggerIn(
                 index: 1,
@@ -546,6 +551,48 @@ class _DayTile extends StatelessWidget {
       button: true,
       hint: 'Ketuk untuk tukar jadwal hari ini',
       child: InkWell(onTap: onTap, child: tile),
+    );
+  }
+}
+
+void openPreferences(BuildContext context) => Navigator.of(context).push(
+  MaterialPageRoute<void>(builder: (_) => const PreferenceScreen()),
+);
+
+/// Pintu masuk preferensi jadwal (libur, masuk pagi/siang) untuk bulan yang akan disusun.
+class PreferenceEntry extends StatelessWidget {
+  const PreferenceEntry({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final h = context.hues.gold;
+    return MxCard(
+      onTap: () => openPreferences(context),
+      padding: const EdgeInsets.symmetric(horizontal: Sp.lg, vertical: Sp.md),
+      child: Row(
+        children: [
+          IconBadge(
+            Icons.edit_calendar_outlined,
+            size: 40,
+            background: h.bg,
+            color: h.fg,
+          ),
+          const SizedBox(width: Sp.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Preferensi jadwal', style: context.text.titleSmall),
+                Text(
+                  'Ingin libur, masuk pagi, atau siang di bulan depan',
+                  style: context.text.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: context.mx.inkMuted),
+        ],
+      ),
     );
   }
 }
