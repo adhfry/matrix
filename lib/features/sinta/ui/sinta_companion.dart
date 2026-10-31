@@ -93,6 +93,9 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   bool _hidden = false;
   bool _muted = false;
 
+  /// Disembunyikan pengelola SINTA (mis. akun dokter pemeriksa): tidak tampil.
+  bool _off = false;
+
   // Seret
   bool _dragging = false;
   bool _free = false;
@@ -132,6 +135,11 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   @override
   void initState() {
     super.initState();
+    unawaited(
+      _repo.hiddenForAccount().then((off) {
+        if (mounted && off != _off) setState(() => _off = off);
+      }).catchError((_) {}),
+    );
     // Efek bunyi tidak meminta fokus audio: dulu bunyi "selesai berpikir"
     // merebut fokus dari suara SINTA sehingga sapaan pribadi terhenti.
     unawaited(_sfx.setAudioContext(AudioContext(
@@ -605,7 +613,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_ready) return const SizedBox.shrink();
+    if (!_ready || _off) return const SizedBox.shrink();
     return LayoutBuilder(
       builder: (context, box) {
         final mq = MediaQuery.of(context);
@@ -1350,8 +1358,25 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   );
 
   Widget _composer() => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-    child: Row(
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _composerRow(),
+        // Keterbukaan (UU PDP): obrolan dicatat untuk keamanan dan pengembangan SINTA.
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text(
+            'Obrolan dengan SINTA dicatat untuk keamanan dan pengembangan SINTA.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _composerRow() => Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
@@ -1396,7 +1421,6 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
           ),
         ),
       ],
-    ),
   );
 }
 

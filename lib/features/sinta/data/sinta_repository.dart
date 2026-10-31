@@ -109,6 +109,10 @@ class SintaRepository {
   final ApiClient _api;
   static const _p = ApiClient.prefix;
 
+  /// SINTA disembunyikan pengelola untuk akun ini? (pendamping tidak tampil sama sekali)
+  Future<bool> hiddenForAccount() async =>
+      J.m(await _api.get('$_p/sinta/status'))['hidden'] == true;
+
   Future<SintaGreeting> greeting() async =>
       SintaGreeting.fromJson(J.m(await _api.get('$_p/sinta/greeting')));
 
