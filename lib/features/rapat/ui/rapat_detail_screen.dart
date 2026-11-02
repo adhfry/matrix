@@ -39,7 +39,7 @@ class RapatDetailScreen extends ConsumerWidget {
               _Header(d),
               const SizedBox(height: Sp.md),
               _MyAttendance(d),
-              if (d.meeting.canRemind || d.sintaCall != null) ...[
+              if (d.meeting.callReminder || d.sintaCall != null) ...[
                 const SizedBox(height: Sp.md),
                 _RemindMe(d),
               ],
@@ -239,55 +239,28 @@ class _MyAttendance extends ConsumerWidget {
   }
 }
 
-/// "Ingatkan Saya": SINTA menelepon (mulai 6 jam sebelum rapat) untuk
-/// mengingatkan dan menanyakan kehadiran.
-class _RemindMe extends ConsumerStatefulWidget {
+/// Telepon SINTA wajib untuk semua peserta (tanpa switch "Ingatkan Saya"):
+/// kartu ini hanya memberi tahu kapan SINTA menelepon dan hasilnya.
+class _RemindMe extends StatelessWidget {
   const _RemindMe(this.d);
   final MeetingDetail d;
 
   @override
-  ConsumerState<_RemindMe> createState() => _RemindMeState();
-}
-
-class _RemindMeState extends ConsumerState<_RemindMe> {
-  bool _busy = false;
-
-  Future<void> _toggle(bool on) async {
-    setState(() => _busy = true);
-    try {
-      final msg = await ref.read(rapatRepositoryProvider).remindMe(widget.d.meeting.id, on);
-      ref.invalidate(meetingDetailProvider(widget.d.meeting.id));
-      if (mounted && msg != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final m = widget.d.meeting;
-    final c = widget.d.sintaCall;
+    final c = d.sintaCall;
     final status = switch ((c?.status, c?.outcome)) {
       (_, 'hadir') => 'SINTA sudah menelepon: Anda menyatakan hadir.',
       (_, 'izin') => 'SINTA sudah menelepon: izin Anda sudah diajukan.',
       (_, 'tidak_hadir' || 'tidak_jelas') => 'SINTA sudah menelepon untuk rapat ini.',
       ('scheduled', _) when c?.scheduledAt != null =>
         'SINTA akan menelepon sekitar pukul ${Fmt.timeOf(c!.scheduledAt!)}.',
-      _ => m.callReminder
-          ? 'SINTA akan menelepon paling cepat 6 jam sebelum rapat, di waktu yang tidak mengganggu.'
-          : 'SINTA menelepon Anda sebelum rapat untuk mengingatkan dan menanyakan kehadiran.',
+      _ => 'Semua peserta ditelepon SINTA mulai 6 jam sebelum rapat, di waktu yang tidak mengganggu, untuk menanyakan kehadiran.',
     };
     return MxCard(
-      child: SwitchListTile(
+      child: ListTile(
         contentPadding: EdgeInsets.zero,
-        value: m.callReminder,
-        onChanged: _busy || !m.canRemind ? null : _toggle,
-        secondary: Image.asset('assets/sinta/sinta-siap.webp', width: 44, height: 44, excludeFromSemantics: true),
-        title: const Text('Ingatkan saya lewat telepon SINTA'),
+        leading: Image.asset('assets/sinta/sinta-siap.webp', width: 44, height: 44, excludeFromSemantics: true),
+        title: const Text('Telepon pengingat dari SINTA'),
         subtitle: Text(status),
       ),
     );
