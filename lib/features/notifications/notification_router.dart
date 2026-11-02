@@ -23,6 +23,7 @@ import 'ui/notifications_screen.dart';
 Future<void> openNotificationRoute({
   required void Function(int tab) goTab,
   void Function(DateTime month)? jumpMonth,
+  void Function()? openCalls,
   String? route,
   String? webUrl,
   bool fromInbox = false,
@@ -76,6 +77,10 @@ Future<void> openNotificationRoute({
           ),
         ),
       );
+    // Panggilan tak terjawab (rekan atau SINTA) -> tab Chat, sub-tab Panggilan.
+    case 'panggilan':
+      openCalls?.call();
+      toTab(Tabs.chat);
     // "chat?conversation=5" -> percakapan di aplikasi; tanpa id -> daftar chat.
     case 'chat':
       final id = int.tryParse(uri?.queryParameters['conversation'] ?? '');

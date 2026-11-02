@@ -12,6 +12,7 @@ import '../data/notification_repository.dart';
 import '../notification_router.dart';
 import 'notification_settings_screen.dart';
 import 'notification_style.dart';
+import '../../chat/ui/chat_list_screen.dart';
 
 /// Kotak masuk: sama dengan bell SiLAKES web, dibaca di sini = terbaca di web.
 class NotificationsScreen extends ConsumerStatefulWidget {
@@ -52,6 +53,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     await openNotificationRoute(
       goTab: (t) => ref.read(tabProvider.notifier).go(t),
       jumpMonth: (m) => ref.read(scheduleJumpProvider.notifier).go(m),
+      openCalls: () => ref.read(chatSubTabProvider.notifier).go(1),
       route: n.route,
       webUrl: n.webUrl,
       fromInbox: true,

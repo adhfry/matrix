@@ -23,6 +23,7 @@ import '../../shell/home_shell.dart';
 import '../../sid/ui/sid_screen.dart';
 import '../../swap/ui/swap_screen.dart';
 import '../data/sinta_repository.dart';
+import 'sinta_views.dart';
 
 /// Alamat SiLAKES web untuk tautan SINTA yang tidak punya layar di aplikasi.
 const _webBase = String.fromEnvironment(
@@ -74,6 +75,7 @@ class _Msg {
       for (final s in (j['steps'] is List ? j['steps'] as List : const []))
         '$s',
     ];
+    m.views = SintaRepository.viewsOf(j['tampilan']);
     m.results = [
       for (final r in (j['results'] is List ? j['results'] as List : const []))
         if (r is Map)
@@ -103,11 +105,15 @@ class _Msg {
   List<String> steps = const [];
   bool stepsOpen = false;
 
+  /// Tabel, grafik, angka, dan tabel pilihan dari SINTA.
+  List<Map<String, dynamic>> views = const [];
+
   Map<String, dynamic> toJson() => {
     'role': role,
     'text': text,
     if (links.isNotEmpty) 'links': [for (final l in links) l.toJson()],
     if (steps.isNotEmpty) 'steps': steps,
+    if (views.isNotEmpty) 'tampilan': views,
     if (results.isNotEmpty)
       'results': [
         for (final r in results)
@@ -556,6 +562,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
         reply.links = r.links;
         reply.proposal = r.proposal;
         reply.steps = r.steps;
+        reply.views = r.views;
       });
     } on ApiException catch (e) {
       _stopLines();
@@ -1339,6 +1346,12 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
           const SizedBox(height: 4),
           _steps(m),
         ],
+        if (m.views.isNotEmpty)
+          SintaViews(
+            views: m.views,
+            disabled: _pending,
+            onAnswer: (t) => _send(t),
+          ),
         if (m.results.isNotEmpty) ...[
           const SizedBox(height: 6),
           _results(m.results),

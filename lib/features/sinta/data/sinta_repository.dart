@@ -147,6 +147,7 @@ class SintaReply {
     this.proposal, {
     this.mood = '',
     this.steps = const [],
+    this.views = const [],
   });
   final String text;
   final List<SintaLink> links;
@@ -154,6 +155,9 @@ class SintaReply {
 
   /// Langkah kerja SINTA (cari data, diperiksa server, cek silang).
   final List<String> steps;
+
+  /// Tabel, grafik, angka, dan tabel pilihan (lihat SintaViews).
+  final List<Map<String, dynamic>> views;
 
   /// Pose SINTA dari server: ide, silang (menolak), laporan, cemas.
   final String mood;
@@ -226,8 +230,15 @@ class SintaRepository {
         for (final l in (d['langkah'] is List ? d['langkah'] as List : const []))
           if (l != null && l.toString().trim().isNotEmpty) l.toString(),
       ],
+      views: viewsOf(d['tampilan']),
     );
   }
+
+  /// Salinan yang bisa diubah (tabel pilihan menandai 'terkirim').
+  static List<Map<String, dynamic>> viewsOf(Object? v) => [
+    for (final x in (v is List ? v : const []))
+      if (x is Map) Map<String, dynamic>.from(x),
+  ];
 
   // ------------------------------------------------ riwayat obrolan (= web)
 

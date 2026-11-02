@@ -10,6 +10,17 @@ import '../data/chat_repository.dart';
 import 'chat_thread_screen.dart';
 import 'chat_widgets.dart';
 import 'new_chat_screen.dart';
+import '../../calls/ui/call_history_view.dart';
+
+/// Sub-tab layar Chat: 0 = percakapan, 1 = riwayat panggilan (bisa dibuka
+/// dari notifikasi "panggilan tidak terjawab").
+class ChatSubTab extends Notifier<int> {
+  @override
+  int build() => 0;
+  void go(int i) => state = i;
+}
+
+final chatSubTabProvider = NotifierProvider<ChatSubTab, int>(ChatSubTab.new);
 
 /// Daftar percakapan chat SiLAKES (sama dengan widget chat di web).
 class ChatListScreen extends ConsumerStatefulWidget {
@@ -22,13 +33,25 @@ class ChatListScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
 }
 
-class _ChatListScreenState extends ConsumerState<ChatListScreen> {
+class _ChatListScreenState extends ConsumerState<ChatListScreen>
+    with SingleTickerProviderStateMixin {
   final _search = TextEditingController();
   String _q = '';
+  late final TabController _tabs = TabController(
+    length: 2,
+    vsync: this,
+    initialIndex: ref.read(chatSubTabProvider),
+  )..addListener(() {
+      if (!_tabs.indexIsChanging) {
+        ref.read(chatSubTabProvider.notifier).go(_tabs.index);
+        setState(() {});
+      }
+    });
 
   @override
   void dispose() {
     _search.dispose();
+    _tabs.dispose();
     super.dispose();
   }
 
@@ -91,17 +114,41 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final async = ref.watch(chatConversationsProvider);
     final me = ref.watch(currentUserProvider).id;
     final c = context.mx;
+    // Dibuka dari notifikasi panggilan tak terjawab: pindah ke tab Panggilan.
+    ref.listen(chatSubTabProvider, (_, i) {
+      if (_tabs.index != i) _tabs.animateTo(i);
+      if (i == 1) ref.invalidate(callHistoryProvider);
+    });
     return Scaffold(
-      appBar: AppBar(title: const Text('Chat')),
-      floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: widget.inTab ? 96 : 0),
-        child: FloatingActionButton.extended(
-          onPressed: _new,
-          icon: const Icon(Icons.edit_outlined),
-          label: const Text('Chat baru'),
+      appBar: AppBar(
+        title: const Text('Chat'),
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: const [Tab(text: 'Chat'), Tab(text: 'Panggilan')],
         ),
       ),
-      body: async.when(
+      floatingActionButton: _tabs.index == 0
+          ? Padding(
+              padding: EdgeInsets.only(bottom: widget.inTab ? 96 : 0),
+              child: FloatingActionButton.extended(
+                onPressed: _new,
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Chat baru'),
+              ),
+            )
+          : null,
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          _chats(async, me, c),
+          CallHistoryView(bottomPadding: widget.inTab ? 200 : 96),
+        ],
+      ),
+    );
+  }
+
+  Widget _chats(AsyncValue<List<ChatConversation>> async, int me, MxColors c) {
+    return async.when(
         loading: () => StateView.loading('Memuat percakapan…'),
         error: (e, _) => StateView.error(e, onRetry: () => ref.invalidate(chatConversationsProvider)),
         data: (all) {
@@ -157,7 +204,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             ),
           );
         },
-      ),
     );
   }
 }

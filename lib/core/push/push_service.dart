@@ -27,6 +27,7 @@ import '../../features/swap/data/swap_repository.dart';
 import '../../features/shell/home_shell.dart';
 import 'interactive_push.dart';
 import 'push_channels.dart';
+import '../../features/chat/ui/chat_list_screen.dart';
 
 enum PushPermission { granted, denied, notDetermined, unavailable }
 
@@ -392,6 +393,7 @@ class PushService {
     await openNotificationRoute(
       goTab: (t) => _ref.read(tabProvider.notifier).go(t),
       jumpMonth: (m) => _ref.read(scheduleJumpProvider.notifier).go(m),
+      openCalls: () => _ref.read(chatSubTabProvider.notifier).go(1),
       route: data['route'] as String?,
       webUrl: data['web_url'] as String?,
     );

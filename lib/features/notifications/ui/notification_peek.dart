@@ -12,6 +12,7 @@ import '../data/notification_repository.dart';
 import '../notification_router.dart';
 import 'notification_style.dart';
 import 'notifications_screen.dart';
+import '../../chat/ui/chat_list_screen.dart';
 
 /// Lima notifikasi terbaru untuk dropdown lonceng di Beranda.
 final notificationPeekProvider =
@@ -104,6 +105,7 @@ class _PeekPanel extends ConsumerWidget {
     await openNotificationRoute(
       goTab: (t) => ref.read(tabProvider.notifier).go(t),
       jumpMonth: (m) => ref.read(scheduleJumpProvider.notifier).go(m),
+      openCalls: () => ref.read(chatSubTabProvider.notifier).go(1),
       route: n.route,
       webUrl: n.webUrl,
     );
