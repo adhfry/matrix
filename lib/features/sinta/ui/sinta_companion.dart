@@ -64,11 +64,57 @@ const _chatLines = [
 
 class _Msg {
   _Msg(this.role, this.text);
+
+  /// Dari riwayat obrolan di server (format sama dengan web). Usulan lama
+  /// tidak bisa dikonfirmasi lagi.
+  factory _Msg.fromJson(Map<String, dynamic> j) {
+    final m = _Msg(j['role'] == 'user' ? 'user' : 'sinta', '${j['text'] ?? ''}');
+    m.links = SintaLink.list(j['links']);
+    m.steps = [
+      for (final s in (j['steps'] is List ? j['steps'] as List : const []))
+        '$s',
+    ];
+    m.results = [
+      for (final r in (j['results'] is List ? j['results'] as List : const []))
+        if (r is Map)
+          (
+            title: '${r['title'] ?? ''}',
+            ok: r['ok'] == true,
+            message: '${r['message'] ?? ''}',
+          ),
+    ];
+    final p = j['proposal'];
+    if (p is Map) {
+      final prop = SintaProposal.fromJson(Map<String, dynamic>.from(p));
+      final st = '${p['status'] ?? 'expired'}';
+      prop.status = st == 'open' || st == 'busy' ? 'expired' : st;
+      m.proposal = prop;
+    }
+    return m;
+  }
+
   final String role; // user | sinta
   String text;
   List<SintaLink> links = const [];
   SintaProposal? proposal;
   List<({String title, bool ok, String message})> results = const [];
+
+  /// Langkah kerja SINTA (dibuka-tutup di bawah jawaban).
+  List<String> steps = const [];
+  bool stepsOpen = false;
+
+  Map<String, dynamic> toJson() => {
+    'role': role,
+    'text': text,
+    if (links.isNotEmpty) 'links': [for (final l in links) l.toJson()],
+    if (steps.isNotEmpty) 'steps': steps,
+    if (results.isNotEmpty)
+      'results': [
+        for (final r in results)
+          {'title': r.title, 'ok': r.ok, 'message': r.message},
+      ],
+    if (proposal != null) 'proposal': proposal!.toJson(),
+  };
 }
 
 /// SINTA pendamping di aplikasi MATRIX: selalu menempel di tepi kiri atau
@@ -126,6 +172,10 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   // Obrolan
   final _msgs = <_Msg>[];
   bool _pending = false;
+
+  /// Id percakapan di riwayat server (null = obrolan baru, belum tersimpan).
+  int? _chatId;
+  Timer? _syncTimer;
   final _input = TextEditingController();
 
   SecureStore get _store => ref.read(secureStoreProvider);
@@ -164,6 +214,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
   void dispose() {
     _lineTimer?.cancel();
     _pokeTimer?.cancel();
+    _syncTimer?.cancel();
     _voice.dispose();
     _sfx.dispose();
     _scroll.dispose();
@@ -504,16 +555,176 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       setState(() {
         reply.links = r.links;
         reply.proposal = r.proposal;
+        reply.steps = r.steps;
       });
     } on ApiException catch (e) {
       _stopLines();
       setState(() {
         _pending = false;
-        _mood = e.statusCode == 429 ? 'marah' : 'cemas';
+        // Diblokir: silang; batas per jam: kesal; galat lain: cemas.
+        _mood = e.message.toLowerCase().contains('diblokir')
+            ? 'silang'
+            : e.statusCode == 429
+            ? 'marah'
+            : 'cemas';
         _msgs.add(reply..text = e.message);
       });
     }
     _toBottom();
+    _sync();
+  }
+
+  /// Simpan obrolan ke riwayat akun (sama dengan web), sedikit tertunda.
+  void _sync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer(const Duration(milliseconds: 900), () async {
+      if (_pending || !_msgs.any((m) => m.role == 'user')) return;
+      final payload = _msgs
+          .where(
+            (m) =>
+                m.text.isNotEmpty || m.proposal != null || m.results.isNotEmpty,
+          )
+          .map((m) => m.toJson())
+          .toList();
+      final start = math.max(0, payload.length - 60);
+      try {
+        final id = await _repo.saveChat(_chatId, payload.sublist(start));
+        if (id != null) _chatId = id;
+      } catch (_) {
+        // Riwayat hanya pelengkap; obrolan tetap jalan.
+      }
+    });
+  }
+
+  void _newChat() {
+    _syncTimer?.cancel();
+    setState(() {
+      _msgs.clear();
+      _chatId = null;
+      _mood = '';
+    });
+  }
+
+  String _when(DateTime d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}.${two(d.minute)}';
+  }
+
+  /// Riwayat obrolan SINTA milik akun ini (web dan MATRIX berbagi riwayat).
+  Future<void> _history() async {
+    List<({int id, String title, DateTime? at})> list;
+    try {
+      list = await _repo.chats();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text(e.message)));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Riwayat obrolan SINTA',
+                          style: Theme.of(ctx).textTheme.titleMedium,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => Navigator.pop(ctx, 0),
+                        icon: const Icon(Icons.add_comment_outlined),
+                        label: const Text('Obrolan baru'),
+                      ),
+                    ],
+                  ),
+                ),
+                if (list.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    child: Text('Belum ada obrolan tersimpan.'),
+                  )
+                else
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final c in list)
+                          ListTile(
+                            selected: c.id == _chatId,
+                            leading: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                            ),
+                            title: Text(
+                              c.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: c.at == null ? null : Text(_when(c.at!)),
+                            onTap: () => Navigator.pop(ctx, c.id),
+                            trailing: IconButton(
+                              tooltip: 'Hapus obrolan',
+                              icon: const Icon(Icons.delete_outline_rounded),
+                              onPressed: () async {
+                                try {
+                                  await _repo.deleteChat(c.id);
+                                } on ApiException {
+                                  return;
+                                }
+                                if (c.id == _chatId) _chatId = null;
+                                setSheet(
+                                  () => list = [...list]
+                                    ..removeWhere((x) => x.id == c.id),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    if (picked == 0) return _newChat();
+    try {
+      final msgs = await _repo.chatMessages(picked);
+      if (!mounted) return;
+      _syncTimer?.cancel();
+      setState(() {
+        _msgs
+          ..clear()
+          ..addAll(msgs.map(_Msg.fromJson));
+        _chatId = picked;
+      });
+      _toBottom();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   Future<void> _confirm(SintaProposal p) async {
@@ -535,6 +746,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
         m.results = r.results;
         m.links = r.links;
       });
+      _sync();
     } on ApiException catch (e) {
       setState(() {
         p.status = e.message.contains('kedaluwarsa') ? 'expired' : 'open';
@@ -556,6 +768,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       'Baik, tidak jadi aku ajukan. Kalau berubah pikiran, bilang saja ya.',
       _token,
     );
+    _sync();
   }
 
   /// Tautan SINTA (path web) dibuka di layar aplikasi bila ada, selain itu di web.
@@ -904,6 +1117,15 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
                         ),
                       ),
                       const Spacer(),
+                      if (chat)
+                        IconButton(
+                          tooltip: 'Riwayat obrolan',
+                          onPressed: _pending ? null : _history,
+                          icon: const Icon(
+                            Icons.history_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
                       IconButton(
                         tooltip: _muted ? 'Nyalakan suara' : 'Matikan suara',
                         onPressed: _toggleMute,
@@ -1113,6 +1335,10 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
       const SizedBox(height: 12),
       for (final m in _msgs) ...[
         _bubble(m.text, user: m.role == 'user'),
+        if (m.steps.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          _steps(m),
+        ],
         if (m.results.isNotEmpty) ...[
           const SizedBox(height: 6),
           _results(m.results),
@@ -1140,6 +1366,16 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
         const SizedBox(height: 8),
       ],
       if (_pending) _thinking(),
+      if (_msgs.isNotEmpty && !_pending)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _chip(
+            Icons.add_comment_outlined,
+            'Mulai obrolan baru',
+            _newChat,
+            ghost: true,
+          ),
+        ),
       if (_msgs.isEmpty && !_pending)
         Wrap(
           spacing: 6,
@@ -1156,6 +1392,109 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
         ),
     ];
   }
+
+  /// Langkah kerja SINTA (cari, diperiksa server, cek silang), ringkas.
+  Widget _steps(_Msg m) => Align(
+    alignment: Alignment.centerLeft,
+    child: Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      decoration: BoxDecoration(
+        color: _navy.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() => m.stepsOpen = !m.stepsOpen),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 40),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      m.stepsOpen
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 18,
+                      color: _sky,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Langkah SINTA (${m.steps.length})',
+                      style: const TextStyle(
+                        color: _sky,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (m.stepsOpen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final (i, st) in m.steps.indexed)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '${i + 1}. $st',
+                        style: const TextStyle(
+                          color: Color(0xFFE0F2FE),
+                          fontSize: 12.5,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+
+  /// Tabel di kartu usulan, digeser ke samping bila lebar.
+  Widget _table(SintaTable t) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        headingRowHeight: 34,
+        dataRowMinHeight: 30,
+        dataRowMaxHeight: 44,
+        horizontalMargin: 8,
+        columnSpacing: 14,
+        headingTextStyle: const TextStyle(
+          color: Color(0xFF475569),
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+        ),
+        dataTextStyle: const TextStyle(
+          color: Color(0xFF0F172A),
+          fontSize: 12.5,
+        ),
+        columns: [for (final c in t.columns) DataColumn(label: Text(c))],
+        rows: [
+          for (final r in t.rows)
+            DataRow(
+              cells: [
+                for (var i = 0; i < t.columns.length; i++)
+                  DataCell(Text(i < r.length ? r[i] : '')),
+              ],
+            ),
+        ],
+      ),
+    ),
+  );
 
   /// Rincian satu tugas; [number] diisi bila usulan berisi beberapa tugas.
   Widget _task(SintaTask t, {int? number}) => Column(
@@ -1213,6 +1552,7 @@ class _SintaCompanionState extends ConsumerState<SintaCompanion> {
             ],
           ),
         ),
+      if (t.table != null && t.table!.columns.isNotEmpty) _table(t.table!),
       const Divider(height: 14),
       Text(
         t.after,

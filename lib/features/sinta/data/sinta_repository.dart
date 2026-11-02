@@ -38,15 +38,40 @@ class SintaLink {
   final String label;
   final String path;
 
+  Map<String, dynamic> toJson() => {'label': label, 'path': path};
+
   static List<SintaLink> list(Object? v) => J
       .l(v)
       .map((l) => SintaLink(J.s(l['label']) ?? '', J.s(l['path']) ?? ''))
       .toList();
 }
 
+/// Tabel di kartu usulan (mis. daftar pasien atau hasil yang akan disimpan).
+class SintaTable {
+  const SintaTable(this.columns, this.rows);
+
+  static SintaTable? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final rows = [
+      for (final r in (v['rows'] is List ? v['rows'] as List : const []))
+        if (r is List) [for (final c in r) c?.toString() ?? ''],
+    ];
+    if (rows.isEmpty) return null;
+    return SintaTable([
+      for (final c in (v['columns'] is List ? v['columns'] as List : const []))
+        c?.toString() ?? '',
+    ], rows);
+  }
+
+  final List<String> columns;
+  final List<List<String>> rows;
+
+  Map<String, dynamic> toJson() => {'columns': columns, 'rows': rows};
+}
+
 /// Satu tugas dalam usulan SINTA.
 class SintaTask {
-  const SintaTask(this.title, this.lines, this.after);
+  const SintaTask(this.title, this.lines, this.after, {this.table});
 
   factory SintaTask.fromJson(Map<String, dynamic> j) => SintaTask(
     J.s(j['title']) ?? 'Tugas',
@@ -55,11 +80,22 @@ class SintaTask {
         .map((l) => (J.s(l['label']) ?? '', J.s(l['value']) ?? ''))
         .toList(),
     J.s(j['after']) ?? '',
+    table: SintaTable.fromJson(j['table']),
   );
 
   final String title;
   final List<(String, String)> lines;
   final String after;
+  final SintaTable? table;
+
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'lines': [
+      for (final (label, value) in lines) {'label': label, 'value': value},
+    ],
+    'after': after,
+    if (table != null) 'table': table!.toJson(),
+  };
 }
 
 /// Usulan yang menunggu konfirmasi pegawai: satu atau beberapa tugas
@@ -92,13 +128,32 @@ class SintaProposal {
   String status = 'open';
 
   bool get expired => DateTime.now().difference(at).inSeconds > expiresIn;
+
+  /// Untuk riwayat obrolan (sama dengan web): tanpa parameter tindakan.
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'items': [for (final t in items) t.toJson()],
+    'confirm_label': confirmLabel,
+    'expires_in': expiresIn,
+    'status': status,
+  };
 }
 
 class SintaReply {
-  const SintaReply(this.text, this.links, this.proposal, {this.mood = ''});
+  const SintaReply(
+    this.text,
+    this.links,
+    this.proposal, {
+    this.mood = '',
+    this.steps = const [],
+  });
   final String text;
   final List<SintaLink> links;
   final SintaProposal? proposal;
+
+  /// Langkah kerja SINTA (cari data, diperiksa server, cek silang).
+  final List<String> steps;
 
   /// Pose SINTA dari server: ide, silang (menolak), laporan, cemas.
   final String mood;
@@ -167,8 +222,42 @@ class SintaRepository {
       SintaLink.list(d['links']),
       p is Map ? SintaProposal.fromJson(J.m(p)) : null,
       mood: J.s(d['mood']) ?? '',
+      steps: [
+        for (final l in (d['langkah'] is List ? d['langkah'] as List : const []))
+          if (l != null && l.toString().trim().isNotEmpty) l.toString(),
+      ],
     );
   }
+
+  // ------------------------------------------------ riwayat obrolan (= web)
+
+  Future<List<({int id, String title, DateTime? at})>> chats() async => [
+    for (final c in J.l(await _api.get('$_p/sinta/chats')))
+      (
+        id: J.i(c['id'], 0),
+        title: J.s(c['title']) ?? 'Obrolan SINTA',
+        at: DateTime.tryParse(J.s(c['updated_at']) ?? '')?.toLocal(),
+      ),
+  ];
+
+  Future<List<Map<String, dynamic>>> chatMessages(int id) async => [
+    for (final m in J.l(J.m(await _api.get('$_p/sinta/chats/$id'))['messages']))
+      J.m(m),
+  ];
+
+  /// Simpan obrolan; mengembalikan id percakapan (baru bila [id] null).
+  Future<int?> saveChat(int? id, List<Map<String, dynamic>> messages) async {
+    final d = J.m(
+      await _api.post(
+        '$_p/sinta/chats',
+        data: {'id': ?id, 'messages': messages},
+      ),
+    );
+    final out = J.i(d['id'], 0);
+    return out > 0 ? out : null;
+  }
+
+  Future<void> deleteChat(int id) => _api.delete('$_p/sinta/chats/$id');
 
   Future<
     ({

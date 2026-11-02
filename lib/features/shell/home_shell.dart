@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../app/theme/tokens.dart';
 import '../../app/theme/app_theme.dart';
@@ -24,6 +23,7 @@ import '../attendance/ui/attendance_launcher.dart';
 import '../scanner/ui/scan_camera_screen.dart';
 import '../stock/ui/stock_scan_screen.dart';
 import 'quick_camera_menu.dart';
+import 'required_permissions.dart';
 import '../auth/session.dart';
 import '../calls/call_controller.dart';
 import '../home/ui/home_screen.dart';
@@ -58,21 +58,34 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with WidgetsBindingObserver {
   // Tab dibangun saat pertama dibuka lalu dipertahankan (data tidak dimuat ulang tiap pindah tab).
   final _built = <int>{Tabs.home};
   int _previous = 0;
 
+  // Izin wajib (notifikasi, lokasi, kamera, mikrofon, baterai): selama ada
+  // yang belum diberikan, layar Izin wajib menutup aplikasi.
+  Map<ReqPerm, PermState>? _perms;
+  ReqPerm? _permBusy;
+  final _permsReady = Completer<void>();
+
+  bool get _permsMissing =>
+      _perms != null && _perms!.values.any((s) => !s.granted);
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ref.read(pushServiceProvider).attach();
+      // Telepon yang sedang berdering tetap bisa diangkat walau izin belum lengkap.
+      await ref.read(callControllerProvider.notifier).checkIncoming();
+      await _refreshPerms();
+      await _permsReady.future;
+      if (!mounted) return;
       await _maybeOfferPin();
       await _maybePromptIdentity();
-      await _maybeAskPush();
-      await _maybeAskAttendancePerms();
-      await ref.read(pushServiceProvider).attach();
-      await ref.read(callControllerProvider.notifier).checkIncoming();
       _warmGps();
       await _maybeOfferUpdate();
     });
@@ -87,88 +100,57 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (mounted) await maybePromptUpdate(context, ref);
   }
 
-  /// Sekali per HP: minta izin kamera & lokasi sebelum pertama kali absen,
-  /// supaya layar absen langsung siap. Diminta berurutan (dua dialog Android
-  /// sekaligus membuat yang kedua hilang).
-  Future<void> _maybeAskAttendancePerms() async {
-    final store = ref.read(secureStoreProvider);
-    if (!mounted || await store.attendancePermsAsked()) return;
-    final camera = await Permission.camera.status;
-    final location = await Geolocator.checkPermission();
-    final locationOk =
-        location == LocationPermission.always ||
-        location == LocationPermission.whileInUse;
-    if (camera.isGranted && locationOk) {
-      await store.setAttendancePermsAsked();
-      return;
-    }
-    await store.setAttendancePermsAsked();
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Kembali dari Pengaturan Android: periksa ulang izin.
+    if (state == AppLifecycleState.resumed) unawaited(_refreshPerms());
+  }
+
+  Future<void> _refreshPerms() async {
+    final perms = ref.read(requiredPermissionsProvider);
+    final now = await perms.check();
     if (!mounted) return;
-    final go = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(Sp.xl, 0, Sp.xl, Sp.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const IconBadge(Icons.camera_front_rounded, size: 52),
-              const SizedBox(height: Sp.lg),
-              Text(
-                'Izinkan kamera dan lokasi untuk absen',
-                style: ctx.text.titleMedium,
-              ),
-              const SizedBox(height: Sp.sm),
-              for (final (icon, line) in const [
-                (
-                  Icons.face_retouching_natural_rounded,
-                  'Kamera: foto wajah saat check-in dan check-out',
-                ),
-                (
-                  Icons.location_on_outlined,
-                  'Lokasi: memastikan Anda berada di titik absen',
-                ),
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Sp.xs),
-                  child: Row(
-                    children: [
-                      Icon(icon, size: 18, color: ctx.mx.primary),
-                      const SizedBox(width: Sp.sm),
-                      Expanded(child: Text(line, style: ctx.text.bodyMedium)),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: Sp.sm),
-              Text(
-                'Lokasi hanya dibaca saat MATRIX terbuka, tidak di latar belakang.',
-                style: ctx.text.bodySmall?.copyWith(color: ctx.mx.inkMuted),
-              ),
-              const SizedBox(height: Sp.xl),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Izinkan'),
-                ),
-              ),
-              const SizedBox(height: Sp.sm),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Nanti saja'),
-                ),
-              ),
-            ],
-          ),
-        ),
+    setState(() => _perms = now);
+    unawaited(
+      ref.read(pushServiceProvider).reportPermissions(
+        RequiredPermissions.report(now),
       ),
     );
-    if (go != true) return;
-    if (!camera.isGranted) await Permission.camera.request();
-    if (!locationOk) await Geolocator.requestPermission();
+    if (!_permsMissing && !_permsReady.isCompleted) {
+      // Notifikasi baru saja diizinkan: pastikan HP terdaftar untuk push & telepon.
+      await ref.read(pushServiceProvider).requestPermission();
+      _permsReady.complete();
+    }
+  }
+
+  Future<void> _askPerm(ReqPerm p) async {
+    final now = _perms?[p];
+    if (now == null || _permBusy != null) return;
+    setState(() => _permBusy = p);
+    try {
+      await ref.read(requiredPermissionsProvider).request(p, now);
+    } finally {
+      if (mounted) setState(() => _permBusy = null);
+    }
+    await _refreshPerms();
+  }
+
+  /// Diminta berurutan: dua dialog Android sekaligus membuat yang kedua hilang.
+  Future<void> _askAllPerms() async {
+    for (final p in ReqPerm.values) {
+      final now = _perms?[p];
+      if (now == null || now.granted) continue;
+      await _askPerm(p);
+      if (!mounted) return;
+      // Dibawa ke Pengaturan: berhenti di sini, sisanya setelah kembali.
+      if (now.blocked) return;
+    }
   }
 
   /// Panaskan GPS saat aplikasi dibuka supaya posisi di layar absen cepat
@@ -192,78 +174,6 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         // Hanya pemanasan; layar absen tetap mencari posisi sendiri.
       }
     }());
-  }
-
-  /// Sekali per HP: jelaskan dulu manfaatnya, baru minta izin notifikasi Android.
-  Future<void> _maybeAskPush() async {
-    final push = ref.read(pushServiceProvider);
-    final store = ref.read(secureStoreProvider);
-    if (!mounted ||
-        await store.pushAsked() ||
-        await push.permission() != PushPermission.notDetermined) {
-      return;
-    }
-    await store.setPushAsked();
-    if (!mounted) return;
-    final go = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(Sp.xl, 0, Sp.xl, Sp.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const IconBadge(Icons.notifications_active_outlined, size: 52),
-              const SizedBox(height: Sp.lg),
-              Text('Aktifkan notifikasi', style: ctx.text.titleMedium),
-              const SizedBox(height: Sp.sm),
-              for (final line in const [
-                'Pengingat saat jendela check-in & check-out dibuka',
-                'Jadwal dan jaspel terbit, keputusan izin',
-                'Pesan chat SiLAKES web langsung ke HP',
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(bottom: Sp.xs),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_rounded,
-                        size: 18,
-                        color: ctx.mx.primary,
-                      ),
-                      const SizedBox(width: Sp.sm),
-                      Expanded(child: Text(line, style: ctx.text.bodyMedium)),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: Sp.sm),
-              Text(
-                'Jenis notifikasi dan jam tenang bisa diatur kapan saja di Akun.',
-                style: ctx.text.bodySmall?.copyWith(color: ctx.mx.inkMuted),
-              ),
-              const SizedBox(height: Sp.xl),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Aktifkan'),
-                ),
-              ),
-              const SizedBox(height: Sp.sm),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Nanti saja'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (go == true) await push.requestPermission();
   }
 
   /// Sekali per hari: bila data diri belum 100%, minta dilengkapi; bila sudah,
@@ -544,7 +454,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       AccountScreen(),
     ];
 
-    return PopScope(
+    final shell = PopScope(
       canPop: index == Tabs.home,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) ref.read(tabProvider.notifier).go(Tabs.home);
@@ -590,6 +500,21 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           onAttend: () => launchAttendance(context, ref),
         ),
       ),
+    );
+    if (!_permsMissing) return shell;
+    return Stack(
+      children: [
+        shell,
+        Positioned.fill(
+          child: PermissionGate(
+            states: _perms!,
+            busy: _permBusy,
+            onRequest: _askPerm,
+            onRequestAll: _askAllPerms,
+            onLogout: () => ref.read(sessionProvider.notifier).logout(),
+          ),
+        ),
+      ],
     );
   }
 }

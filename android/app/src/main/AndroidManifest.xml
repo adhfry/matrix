@@ -40,6 +40,8 @@
     
     <!-- Wake Lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Izin wajib: baterai tanpa batasan supaya push & telepon SINTA tetap masuk. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <!-- Pembaruan dalam aplikasi: pasang APK versi baru dari SiLAKES -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>

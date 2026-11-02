@@ -203,6 +203,7 @@ class NotificationRepository {
     required String appVersion,
     int? appBuild,
     String? deviceInfo,
+    Map<String, bool>? permissions,
   }) => _api.post(
     '$_p/devices',
     data: {
@@ -211,6 +212,7 @@ class NotificationRepository {
       'app_version': appVersion,
       'app_build': ?appBuild,
       'device_info': ?deviceInfo,
+      'permissions': ?permissions,
     },
   );
 

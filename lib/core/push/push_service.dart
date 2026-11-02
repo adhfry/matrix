@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -156,6 +157,18 @@ class PushService {
     } catch (_) {}
   }
 
+  /// Status izin HP terakhir (layar Izin wajib); ikut dikirim saat mendaftarkan HP.
+  Map<String, bool>? _perms;
+
+  /// Laporkan status izin HP ke server bila berubah (pengelola melihat HP
+  /// mana yang siap menerima telepon SINTA).
+  Future<void> reportPermissions(Map<String, bool> perms) async {
+    if (mapEquals(_perms, perms)) return;
+    _perms = perms;
+    final token = _token;
+    if (token != null) await _register(token);
+  }
+
   Future<void> _register(String token) async {
     if (_ref.read(sessionProvider) is! SessionReady) return;
     _token = token;
@@ -167,6 +180,7 @@ class PushService {
             token: token,
             appVersion: info.version,
             appBuild: int.tryParse(info.buildNumber),
+            permissions: _perms,
           );
     } catch (e) {
       debugPrint('[push] daftar perangkat gagal: $e');
