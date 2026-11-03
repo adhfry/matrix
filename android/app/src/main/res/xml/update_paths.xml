@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- APK pembaruan diunduh ke cache/updates/ (AppUpdateChannel). -->
+<!-- APK pembaruan diunduh ke files/updates/ (sejak 2.5.2; sebelumnya cache/updates/). -->
 <paths>
-    <cache-path name="updates" path="updates/" />
+    <files-path name="updates" path="updates/" />
+    <cache-path name="updates_cache" path="updates/" />
 </paths>

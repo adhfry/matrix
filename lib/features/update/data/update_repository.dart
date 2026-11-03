@@ -198,6 +198,11 @@ class AppInstaller extends Notifier<InstallState> {
   static const _ch = MethodChannel('matrix/app_update');
   CancelToken? _cancel;
   AppReleaseInfo? _pending;
+
+  /// Satu unduhan sekaligus: unduh latar (Wi-Fi) dan layar wajib-update bisa
+  /// memanggil bersamaan, sebelum state sempat berubah (hitung SHA berkas lama
+  /// butuh waktu). Dua unduhan ke berkas yang sama merusak APK.
+  bool _running = false;
   AppLifecycleListener? _resume;
 
   @override
@@ -209,10 +214,13 @@ class AppInstaller extends Notifier<InstallState> {
     return const InstallState(InstallStage.idle);
   }
 
+  /// files/updates, bukan cache: saat penyimpanan hampir penuh Android
+  /// mengosongkan cache aplikasi, sehingga APK bisa hilang di tengah unduhan.
+  static Future<Directory> _updatesDir() async =>
+      Directory('${(await getApplicationSupportDirectory()).path}/updates');
+
   Future<File> _fileFor(AppReleaseInfo r) async {
-    final dir = Directory(
-      '${(await getApplicationCacheDirectory()).path}/updates',
-    );
+    final dir = await _updatesDir();
     await dir.create(recursive: true);
     return File('${dir.path}/matrix-${r.versionCode}.apk');
   }
@@ -233,8 +241,14 @@ class AppInstaller extends Notifier<InstallState> {
   }
 
   Future<void> _run(AppReleaseInfo release, {required bool install}) async {
-    if (state.busy || release.downloadUrl == null) return;
+    if (release.downloadUrl == null) return;
     _pending = release;
+    if (_running || state.busy) {
+      // Unduhan latar sedang berjalan: cukup lanjutkan memasang setelah selesai.
+      if (install) _installWhenReady = true;
+      return;
+    }
+    _running = true;
     try {
       final file = await _fileFor(release);
       if (!await _matches(file, release.sha256)) {
@@ -252,11 +266,11 @@ class AppInstaller extends Notifier<InstallState> {
         );
         state = const InstallState(InstallStage.verifying);
         if (!await _matches(file, release.sha256)) {
-          await file.delete();
+          await _deleteQuietly(file);
           throw const _InstallError('Berkas unduhan rusak. Coba unduh ulang.');
         }
       }
-      if (install) {
+      if (install || _installWhenReady) {
         await _install(file);
       } else {
         state = const InstallState(InstallStage.ready);
@@ -268,6 +282,11 @@ class AppInstaller extends Notifier<InstallState> {
         state = const InstallState(InstallStage.idle);
         return;
       }
+      if (_noSpace(e.error ?? e)) {
+        await _deleteQuietly(await _fileFor(release));
+        state = InstallState(InstallStage.failed, error: _noSpaceMessage(release.size));
+        return;
+      }
       // Unduhan latar yang gagal tidak perlu mengganggu; cukup ulang nanti.
       state = install
           ? const InstallState(
@@ -277,10 +296,36 @@ class AppInstaller extends Notifier<InstallState> {
             )
           : const InstallState(InstallStage.idle);
     } catch (e) {
-      state = install
-          ? InstallState(InstallStage.failed, error: 'Pembaruan gagal: $e')
+      final full = _noSpace(e);
+      if (full) await _deleteQuietly(await _fileFor(release));
+      state = install || full
+          ? InstallState(InstallStage.failed, error: full ? _noSpaceMessage(release.size) : 'Pembaruan gagal: $e')
           : const InstallState(InstallStage.idle);
+    } finally {
+      _running = false;
+      _installWhenReady = false;
     }
+  }
+
+  bool _installWhenReady = false;
+
+  /// Penyimpanan HP penuh (ENOSPC = errno 28). Pesan aslinya kadang tertutup
+  /// error lanjutan (mis. gagal menghapus berkas yang tidak jadi ditulis).
+  static bool _noSpace(Object e) {
+    if (e is FileSystemException && e.osError?.errorCode == 28) return true;
+    final t = e.toString().toLowerCase();
+    return t.contains('no space left') || t.contains('errno = 28') || t.contains('enospc');
+  }
+
+  static String _noSpaceMessage(int size) {
+    final mb = size > 0 ? ((size * 2) / (1024 * 1024)).ceil() : 400;
+    return 'Ruang penyimpanan HP penuh. Kosongkan sekitar $mb MB (hapus foto, video, atau aplikasi yang tidak dipakai), lalu tekan Coba lagi.';
+  }
+
+  static Future<void> _deleteQuietly(File f) async {
+    try {
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   Future<void> _install(File file) async {
@@ -316,9 +361,10 @@ class AppInstaller extends Notifier<InstallState> {
   /// Hapus APK lama yang sudah terpasang (versi <= build sekarang).
   static Future<void> cleanup(int currentBuild) async {
     try {
-      final dir = Directory(
-        '${(await getApplicationCacheDirectory()).path}/updates',
-      );
+      // Lokasi lama (cache/updates, sampai 2.5.1) ikut dibersihkan seluruhnya.
+      final old = Directory('${(await getApplicationCacheDirectory()).path}/updates');
+      if (await old.exists()) await old.delete(recursive: true);
+      final dir = await _updatesDir();
       if (!await dir.exists()) return;
       await for (final f in dir.list()) {
         final code = int.tryParse(
